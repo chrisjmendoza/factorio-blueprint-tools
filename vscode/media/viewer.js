@@ -295,6 +295,7 @@
     const vx0 = Math.floor(-ox / scale) - 1, vy0 = Math.floor(-oy / scale) - 1;
     const vx1 = Math.ceil((canvas.width - ox) / scale) + 1, vy1 = Math.ceil((canvas.height - oy) / scale) + 1;
     const gap = scale >= 6 ? 1 : 0;
+    const deferredLabels = [];   // recipe labels are drawn last so tunnel lines and wires never cover them
     const visible = (r) => r.cells.some(([x, y]) => x >= vx0 && x <= vx1 && y >= vy0 && y <= vy1);
 
     if (showGrid && scale >= 8) {
@@ -313,10 +314,14 @@
       const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0 + 1, h = Math.max(...ys) - y0 + 1;
       ctx.fillRect(px(x0) + gap, py(y0) + gap, w * scale - gap * 2, h * scale - gap * 2);
       if (r.cells.length > 1 && showLabels && scale >= 9 && (r.e.recipe || r.kind[0] === "furnace")) {
-        ctx.fillStyle = "rgba(0,0,0,0.75)";
-        const fs = Math.max(8, Math.min(12, scale * 0.9));
-        ctx.font = fs + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        wrapText((r.e.recipe || r.e.name).replace(/-/g, " "), px(x0) + w * scale / 2, py(y0) + h * scale / 2, w * scale - 4, fs);
+        const alpha = ctx.globalAlpha;
+        deferredLabels.push(() => {
+          ctx.globalAlpha = alpha; ctx.fillStyle = "rgba(0,0,0,0.8)";
+          const fs = Math.max(8, Math.min(12, scale * 0.9));
+          ctx.font = fs + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          wrapText((r.e.recipe || r.e.name).replace(/-/g, " "), px(x0) + w * scale / 2, py(y0) + h * scale / 2, w * scale - 4, fs);
+          ctx.globalAlpha = 1;
+        });
       }
       if (scale >= 5 && !r.removed) decorate(r);
       ctx.globalAlpha = 1;
@@ -403,14 +408,16 @@
           if (p) {
             const [x, y] = r.cells[0], [x2, y2] = p.pair.cells[0];
             ctx.setLineDash([Math.max(2, scale / 3), Math.max(2, scale / 3)]);
-            ctx.lineWidth = Math.max(1, scale / 6); ctx.strokeStyle = TIER[tierOf(r.e.name)].belt;
+            ctx.lineWidth = Math.max(1, scale / 8); ctx.strokeStyle = TIER[tierOf(r.e.name)].belt; ctx.globalAlpha = 0.45;
             ctx.beginPath(); ctx.moveTo(px(x) + scale / 2, py(y) + scale / 2); ctx.lineTo(px(x2) + scale / 2, py(y2) + scale / 2); ctx.stroke();
-            ctx.setLineDash([]);
+            ctx.setLineDash([]); ctx.globalAlpha = 1;
           }
         }
         if (!ugPair(r)) { ctx.strokeStyle = "#ff3b3b"; ctx.lineWidth = 2; outline(r); }
       }
     }
+
+    for (const f of deferredLabels) f();   // after belts, flow stripes, wires and tunnels
 
     // placement ghost
     if (editMode && ghost && hoverTile) {
