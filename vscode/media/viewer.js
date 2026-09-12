@@ -362,7 +362,7 @@
       if (scale >= 5) decorate(ghost);
     }
 
-    if (showFlow && flowData && showItemLegend) drawItemLegend();
+    if (showItemLegend) { if (showFlow && flowData) drawItemLegend(); else drawEntityLegend(); }
 
     const sel = pinned || hover;
     if (sel) {
@@ -414,6 +414,30 @@
     legendBox = { x0, y0, w, h };
   }
   let legendBox = null;
+
+  // On-map legend when flow is off: what the entity colours mean. Same box, same hide behaviour.
+  function drawEntityLegend() {
+    const rows = [];
+    for (const [name, t] of Object.entries(TIER)) rows.push([t.belt, name + " belt / underground / splitter (" + t.label + "), gap " + (t.reach - 1)]);
+    for (const k of KINDS) if (!["other", "belt", "underground", "splitter"].includes(k[0])) rows.push([k[2], k[0]]);
+    rows.push(["#39d353", "added by this patch"], ["#ff9f1c", "changed by this patch"], ["#ff3b3b", "removed / unpaired underground"]);
+    const rowH = 16, pad = 8, colW = 230, maxRows = 14;
+    const cols = rows.length > maxRows ? 2 : 1, nrows = Math.min(maxRows, Math.ceil(rows.length / cols));
+    const w = pad * 2 + colW * cols, h = pad * 2 + rowH * (nrows + 2);
+    const x0 = 10, y0 = canvas.height - h - 10;
+    ctx.fillStyle = "rgba(20,20,22,0.88)"; ctx.fillRect(x0, y0, w, h);
+    ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
+    ctx.font = "12px sans-serif"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+    ctx.fillStyle = "#ddd"; ctx.fillText("legend  (turn on flow for item colours)", x0 + pad, y0 + pad + rowH / 2);
+    rows.forEach(([col, txt], i) => {
+      const c = Math.floor(i / nrows), r = i % nrows;
+      const x = x0 + pad + c * colW, y = y0 + pad + rowH * (r + 1) + rowH / 2;
+      ctx.fillStyle = col; ctx.fillRect(x, y - 6, 12, 12);
+      ctx.fillStyle = "#eee"; ctx.fillText(txt.length > 36 ? txt.slice(0, 35) + "…" : txt, x + 18, y);
+    });
+    ctx.fillStyle = "#888"; ctx.fillText("arrows: belt travel · inserter arrow points where the item goes · click header to hide", x0 + pad, y0 + pad + rowH * (nrows + 1) + rowH / 2);
+    legendBox = { x0, y0, w, h, entity: true };
+  }
 
   function wrapText(text, cx, cy, maxW, lh) {
     const words = text.split(" "), lines = []; let cur = "";
@@ -687,14 +711,19 @@
     if (painting) { painting = false; lastPaint = null; dragging = false; canvas.classList.remove("dragging"); return; }
     if (dragging && !moved && ev.target === canvas) {
       // click on the on-map legend: an item row toggles highlight, the header hides the legend
-      if (showFlow && flowData && showItemLegend && legendBox &&
-          ev.offsetX >= legendBox.x0 && ev.offsetX <= legendBox.x0 + legendBox.w && ev.offsetY >= legendBox.y0 && ev.offsetY <= legendBox.y0 + legendBox.h) {
+      const inLegend = showItemLegend && legendBox &&
+          ev.offsetX >= legendBox.x0 && ev.offsetX <= legendBox.x0 + legendBox.w && ev.offsetY >= legendBox.y0 && ev.offsetY <= legendBox.y0 + legendBox.h;
+      if (inLegend && legendBox.entity) {
+        if (ev.offsetY - legendBox.y0 < 24) { showItemLegend = false; $("itemlegend").checked = false; draw(); }
+        dragging = false; canvas.classList.remove("dragging"); return;
+      }
+      if (inLegend && showFlow && flowData) {
         const counts = {};
         for (const L of Object.values(flowData.lanes)) for (const i of L.left.concat(L.right)) counts[i] = (counts[i] || 0) + 1;
         const names = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
         const rowH = 16, pad = 8, colW = 190, maxRows = 18, cols = names.length > maxRows ? 2 : 1, rows = Math.min(maxRows, Math.ceil(names.length / cols));
         const r = Math.floor((ev.offsetY - legendBox.y0 - pad) / rowH) - 1, c = Math.floor((ev.offsetX - legendBox.x0 - pad) / colW);
-        if (r < 0) showItemLegend = false;
+        if (r < 0) { showItemLegend = false; $("itemlegend").checked = false; }
         else if (r < rows && names[c * rows + r]) flowHighlight = flowHighlight === names[c * rows + r] ? "" : names[c * rows + r];
         draw(); dragging = false; canvas.classList.remove("dragging"); return;
       }
@@ -788,7 +817,11 @@
   $("labels").onchange = (ev) => { showLabels = ev.target.checked; draw(); };
   $("gridlines").onchange = (ev) => { showGrid = ev.target.checked; draw(); };
   $("tunnels").onchange = (ev) => { showTunnels = ev.target.checked; draw(); };
-  $("flow").onchange = (ev) => { showFlow = ev.target.checked; showItemLegend = true; draw(); };
+  $("flow").onchange = (ev) => {
+    showFlow = ev.target.checked; showItemLegend = true; $("itemlegend").checked = true;
+    if (showFlow && !inVsCode) vscode.postMessage({ type: "status", text: "" }), $("file").textContent += "  ·  flow needs the VS Code panel (fbp: Open blueprint viewer)";
+    draw();
+  };
   $("itemlegend").onchange = (ev) => { showItemLegend = ev.target.checked; draw(); };
   $("feedmode").onchange = (ev) => {
     feedMode = ev.target.checked; document.body.classList.toggle("feeding", feedMode);
