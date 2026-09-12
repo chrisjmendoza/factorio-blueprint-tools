@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!--CSP-->
+<link rel="stylesheet" href="viewer.css">
+<title>fbp viewer</title>
+</head>
+<body>
+<div id="toolbar">
+  <button id="open" title="open a blueprint string file (.txt)">open…</button>
+  <span id="file" class="muted">no blueprint</span>
+  <input id="search" type="search" placeholder="highlight name or recipe…" spellcheck="false">
+  <label><input id="wires" type="checkbox"> wires</label>
+  <label><input id="labels" type="checkbox" checked> labels</label>
+  <label><input id="gridlines" type="checkbox"> grid</label>
+  <button id="fit" title="fit blueprint to view (F)">fit</button>
+  <span id="coords" class="muted"></span>
+</div>
+<div id="main">
+  <canvas id="map"></canvas>
+  <div id="side">
+    <div id="legend"></div>
+    <div id="detail"><div class="muted">Hover for details, click to pin. Drag to pan, wheel to zoom.</div></div>
+  </div>
+</div>
+<div id="drop" hidden>
+  <div>
+    <h2>fbp blueprint viewer</h2>
+    <p>Drop a blueprint <code>.txt</code> here, paste a blueprint string (Ctrl+V), or use <b>open…</b>.</p>
+    <p class="muted" id="mode"></p>
+  </div>
+</div>
+<input id="filepick" type="file" accept=".txt,.fbp,.json" hidden>
+<div id="tip" hidden></div>
+<script src="viewer.js"></script>
+</body>
+</html>

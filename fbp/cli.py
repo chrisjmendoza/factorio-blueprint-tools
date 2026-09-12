@@ -75,6 +75,18 @@ def cmd_find(a, gd):
 def cmd_trace(a, gd):
     obj, bp, grid = _grid(a.file, gd)
     tr = Tracer(grid, gd)
+    if a.at:
+        x, y = a.at
+        b = grid.belt_at(x, y)
+        if not b:
+            sys.exit("no belt at (%d,%d)" % (x, y))
+        print("belt", grid.describe(b), "direction", b.get("direction", 0))
+        print("upstream  :", json.dumps(tr.summarize_line(b), default=str))
+        belts, cells = tr.line(b, "downstream")
+        cons = Counter(d.get("recipe") or d["name"] for ins, dsts in tr.consumers(cells) for d in dsts if kind(d) != "belt")
+        xs = [c[0] for c in cells]; ys = [c[1] for c in cells]
+        print("downstream: %d belts, x%d-%d y%d-%d, consumers %s" % (len(belts), min(xs), max(xs), min(ys), max(ys), dict(cons)))
+        return
     targets = [grid.byid[i] for i in a.id] if a.id else list(grid.find(recipe=a.recipe, name=a.name))
     if not targets:
         sys.exit("nothing matched")
@@ -89,10 +101,30 @@ def cmd_trace(a, gd):
 
 
 def cmd_check(a, gd):
+    from .check import lane_mix, format_lane_mix
     obj, bp, grid = _grid(a.file, gd)
     findings, inconclusive, unknown = check(grid, gd, a.recipe)
     print(format_report(grid, findings, inconclusive, unknown, gd.source))
+    if not a.recipe:
+        print(format_lane_mix(grid, lane_mix(grid, gd)))
     sys.exit(1 if findings else 0)
+
+
+def cmd_lint(a, gd):
+    from .lint import lint, format_lint
+    obj, bp, grid = _grid(a.file, gd)
+    findings = lint(grid)
+    print(format_lint(grid, findings, set(a.only) if a.only else None))
+    sys.exit(1 if findings and a.strict else 0)
+
+
+def cmd_diff(a, gd):
+    from .diff import compare
+    bp_a = codec.first_blueprint(codec.load(a.a))
+    bp_b = codec.first_blueprint(codec.load(a.b))
+    text, changed, regressions = compare(bp_a, bp_b, gd)
+    print(text)
+    sys.exit(1 if regressions else 0)
 
 
 def cmd_patch(a, gd):
@@ -155,10 +187,18 @@ def main(argv=None):
 
     s = sub.add_parser("trace", help="inputs, outputs and belt lines of machines"); s.add_argument("file")
     s.add_argument("--recipe"); s.add_argument("--name"); s.add_argument("--id", type=int, nargs="*")
+    s.add_argument("--at", type=int, nargs=2, metavar=("X", "Y"), help="belt tile: show what flows in and where it goes")
     s.set_defaults(fn=cmd_trace)
 
     s = sub.add_parser("check", help="flag crafters with an ingredient nothing nearby supplies"); s.add_argument("file")
     s.add_argument("--recipe"); s.set_defaults(fn=cmd_check)
+
+    s = sub.add_parser("lint", help="belts and inserters that point at nothing useful"); s.add_argument("file")
+    s.add_argument("--only", nargs="*", help="show only these finding codes"); s.add_argument("--strict", action="store_true")
+    s.set_defaults(fn=cmd_lint)
+
+    s = sub.add_parser("diff", help="what changed between two versions: machines, check, lint, lane mix")
+    s.add_argument("a"); s.add_argument("b"); s.set_defaults(fn=cmd_diff)
 
     s = sub.add_parser("patch", help="apply a JSON patch and write a new string"); s.add_argument("file")
     s.add_argument("patch"); s.add_argument("-o", "--out", required=True); s.add_argument("--label")

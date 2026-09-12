@@ -6,8 +6,77 @@ source (a chest without filters, or a belt fed from outside the blueprint).
 Unknown sources make the check inconclusive rather than clean, and are
 reported separately.
 """
-from .model import kind
+from .model import DIRS, inserter_ends, is_splitter, kind, tile_of
 from .trace import Tracer
+
+
+def drop_lane(inserter, belt):
+    """Which lane of `belt` an inserter fills: 'left'/'right' relative to belt travel, or 'both' if inline."""
+    pick, drop = inserter_ends(inserter)
+    ix, iy = tile_of(inserter)
+    dx, dy = DIRS[belt.get("direction", 0) & 12]
+    rel = (ix - drop[0], iy - drop[1])
+    if rel == (dy, -dx):        # inserter stands on the belt's left: items land on the far (right) lane
+        return "right"
+    if rel == (-dy, dx):
+        return "left"
+    return "both"
+
+
+def lane_mix(grid, gamedata):
+    """Lanes that receive two different items from inserters.
+
+    A mall belt is meant to carry one item per lane. When a second item is
+    dropped onto a lane that already carries something else, the lane fills
+    with whichever item is consumed least and everything downstream loses that
+    lane. Furnace output counts as one item ("smelted") because the tool cannot
+    tell which plate a furnace makes.
+    """
+    tr = Tracer(grid, gamedata)
+    terminals = [b for b in grid.entities if kind(b) == "belt" and not is_splitter(b) and not tr.downstream(b)]
+    seen, warnings = set(), []
+    for t in terminals:
+        belts, cells = tr.line(t)
+        key = frozenset(b["entity_number"] for b in belts)
+        if key in seen:
+            continue
+        seen.add(key)
+        lanes = {"left": {}, "right": {}}
+        for ins, sources in tr.feeders(cells):
+            pick, drop = inserter_ends(ins)
+            belt = grid.belt_at(*drop)
+            for s in sources:
+                k = kind(s)
+                if k == "furnace":
+                    item = "smelted"
+                elif k == "crafter" and s.get("recipe"):
+                    prods = sorted(gamedata.products(s["recipe"]))
+                    item = prods[0] if prods else s["recipe"]
+                else:
+                    continue
+                lane = drop_lane(ins, belt)
+                for L in (("left", "right") if lane == "both" else (lane,)):
+                    lanes[L].setdefault(item, []).append(ins)
+        for L, items in lanes.items():
+            if len(items) > 1:
+                xs = [c[0] for c in cells]
+                ys = [c[1] for c in cells]
+                cons = sum(1 for _ in tr.consumers(cells))
+                warnings.append({"terminal": t, "lane": L, "items": {i: len(v) for i, v in items.items()},
+                                 "belts": len(belts), "bbox": (min(xs), min(ys), max(xs), max(ys)), "consumers": cons})
+    return warnings
+
+
+def format_lane_mix(grid, warnings):
+    if not warnings:
+        return "LANE MIX: none"
+    lines = ["LANE MIX (%d): a lane fed two different items" % len(warnings)]
+    for w in warnings:
+        x0, y0, x1, y1 = w["bbox"]
+        lines.append("  line ending at %s (%d belts, x%d-%d y%d-%d, %d consumers): %s lane gets %s" % (
+            grid.describe(w["terminal"]), w["belts"], x0, x1, y0, y1, w["consumers"], w["lane"],
+            ", ".join("%s (%d inserters)" % kv for kv in sorted(w["items"].items()))))
+    return "\n".join(lines)
 
 
 def check(grid, gamedata, recipe=None):

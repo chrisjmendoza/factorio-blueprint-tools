@@ -230,3 +230,65 @@ def test_ascii_render_marks_machines_and_belts(bp, gd):
     text = render.ascii_region(grid, 108, 74, 118, 82)
     assert "A" in text and ">" in text and "i" in text
     assert text.splitlines()[1].startswith("  74 ")
+
+
+# -- lint / lane mix / diff -------------------------------------------------
+
+from fbp.lint import lint
+from fbp.check import lane_mix, drop_lane
+
+
+def test_lint_geometry(gd):
+    bp = {"entities": [
+        {"entity_number": 1, "name": "transport-belt", "position": {"x": 0.5, "y": 0.5}, "direction": 4},   # dead end
+        {"entity_number": 2, "name": "underground-belt", "position": {"x": 5.5, "y": 0.5}, "direction": 8, "type": "input"},
+        {"entity_number": 3, "name": "inserter", "position": {"x": 8.5, "y": 8.5}, "direction": 0},           # nothing either side
+        {"entity_number": 4, "name": "transport-belt", "position": {"x": 0.5, "y": 5.5}, "direction": 4},   # into a chest
+        {"entity_number": 5, "name": "iron-chest", "position": {"x": 1.5, "y": 5.5}},
+        {"entity_number": 6, "name": "transport-belt", "position": {"x": 0.5, "y": 9.5}, "direction": 4},   # terminal, picked
+        {"entity_number": 7, "name": "inserter", "position": {"x": 0.5, "y": 10.5}, "direction": 0},
+        {"entity_number": 8, "name": "iron-chest", "position": {"x": 0.5, "y": 11.5}},
+    ], "wires": []}
+    codes = sorted(code for code, e, msg in lint(Grid(bp, gd.footprints())))
+    assert codes == ["belt-dead-end", "belt-into-entity", "inserter-from-empty", "inserter-to-ground", "underground-unpaired"]
+
+
+def test_drop_lane_is_far_side():
+    belt = {"name": "transport-belt", "position": {"x": 3.5, "y": 3.5}, "direction": 8}   # travelling south
+    east = {"name": "inserter", "position": {"x": 4.5, "y": 3.5}, "direction": 4}           # stands east, drops west onto belt
+    west = {"name": "inserter", "position": {"x": 2.5, "y": 3.5}, "direction": 12}
+    # travelling south: left lane is the east side. Inserter on the east drops on the far = west = right lane.
+    assert drop_lane(east, belt) == "right"
+    assert drop_lane(west, belt) == "left"
+
+
+def test_lane_mix_flags_second_item_on_a_lane(gd):
+    # A belt running south; a copper-cable maker and an iron-stick maker both drop from the east onto the same lane.
+    bp = {"entities": [
+        {"entity_number": 1, "name": "transport-belt", "position": {"x": 3.5, "y": 1.5}, "direction": 8},
+        {"entity_number": 2, "name": "transport-belt", "position": {"x": 3.5, "y": 2.5}, "direction": 8},
+        {"entity_number": 3, "name": "transport-belt", "position": {"x": 3.5, "y": 3.5}, "direction": 8},
+        {"entity_number": 4, "name": "transport-belt", "position": {"x": 3.5, "y": 4.5}, "direction": 8},
+        {"entity_number": 5, "name": "assembling-machine-1", "position": {"x": 6.5, "y": 1.5}, "recipe": "copper-cable"},
+        {"entity_number": 6, "name": "inserter", "position": {"x": 4.5, "y": 1.5}, "direction": 4},
+        {"entity_number": 7, "name": "assembling-machine-1", "position": {"x": 6.5, "y": 4.5}, "recipe": "iron-stick"},
+        {"entity_number": 8, "name": "inserter", "position": {"x": 4.5, "y": 4.5}, "direction": 4},
+    ], "wires": []}
+    w = lane_mix(Grid(bp, gd.footprints()), gd)
+    assert len(w) == 1 and w[0]["lane"] == "right" and set(w[0]["items"]) == {"copper-cable", "iron-stick"}
+    # move the stick inserter to the west side: now one item per lane, no warning
+    bp["entities"][7]["position"] = {"x": 2.5, "y": 4.5}; bp["entities"][7]["direction"] = 12
+    bp["entities"][6]["position"] = {"x": 0.5, "y": 4.5}
+    assert lane_mix(Grid(bp, gd.footprints()), gd) == []
+
+
+def test_diff_reports_only_changed_machines(bp, gd):
+    import copy
+    from fbp.diff import compare
+    before = copy.deepcopy(bp)
+    grid = Grid(bp, gd.footprints())
+    cable_asm = by_recipe(grid, "steel-furnace")
+    patch.apply(bp, {"recipe": {str(cable_asm["entity_number"]): "copper-cable"}}, gd.footprints())
+    text, changed, regressions = compare(before, bp, gd)
+    assert changed == 1 and "steel-furnace -> copper-cable" in text
+    assert "REMOVED" not in text and "ADDED" not in text
