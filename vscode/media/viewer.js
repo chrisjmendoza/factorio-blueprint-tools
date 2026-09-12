@@ -745,7 +745,10 @@
     const name = $("palette").value; if (!name) return null;
     const dir = parseInt($("pdir").value, 10);
     const e = { name, position: centreFor(name, dir, tx, ty) };
-    if (DIRECTIONAL.test(name) || sizeOf(name, 0)[0] !== sizeOf(name, 0)[1]) e.direction = dir;
+    // The palette direction is "the way items move". Belts store exactly that; inserters store the
+    // pickup side, i.e. the opposite, so flip it here and the arrow points where the user chose.
+    const stored = name.endsWith("inserter") ? (dir + 8) % 16 : dir;
+    if (DIRECTIONAL.test(name) || sizeOf(name, 0)[0] !== sizeOf(name, 0)[1]) e.direction = stored;
     if (name.endsWith("underground-belt")) e.type = $("ptype").value;
     if (/^assembling-machine|^chemical-plant$|furnace$/.test(name)) e.recipe_quality = "normal";
     if (/chest$/.test(name) && !/requester|provider/.test(name)) e.bar = 1;
