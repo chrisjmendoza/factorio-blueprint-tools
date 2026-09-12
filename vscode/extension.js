@@ -73,24 +73,49 @@ function send(doc) {
 // pushed to the page. Edge feeds live beside the blueprint as <name>.feeds.json.
 function feedsPath(file) { return file.replace(/\.[^.]+$/, "") + ".feeds.json"; }
 let flowSeq = 0;
+function log(line) {
+  if (!output) output = vscode.window.createOutputChannel("fbp");
+  output.appendLine(line);
+}
 async function runFlow(file) {
   const seq = ++flowSeq;
+  const started = Date.now();
   const tmp = path.join(require("os").tmpdir(), "fbp-flow-" + process.pid + ".json");
+  if (panel) panel.webview.postMessage({ type: "flowstatus", text: "running fbp flow…" });
+  log("$ fbp flow \"" + file + "\" --json " + tmp);
   const res = await runFbpCollect(["flow", file, "--json", tmp]);
+  const ms = Date.now() - started;
   if (seq !== flowSeq || !panel) return;
-  if (res.code !== 0) { panel.webview.postMessage({ type: "flow", error: res.out.trim().split("\n").pop() }); return; }
+  if (res.code !== 0) {
+    log(res.out);
+    panel.webview.postMessage({ type: "flow", error: res.out.trim().split("\n").pop() + " (see the fbp output channel)" });
+    return;
+  }
   try {
     const data = JSON.parse(fs.readFileSync(tmp, "utf8"));
-    panel.webview.postMessage({ type: "flow", data, feedsFile: path.basename(feedsPath(file)) });
+    const st = { ok: 0, missing: 0, unknown: 0 };
+    for (const m of Object.values(data.machines || {})) if (st[m.status] !== undefined) st[m.status]++;
+    log("flow: " + Object.keys(data.lanes || {}).length + " belts resolved, " + (data.feeds || []).length + " feeds, machines ok/missing/unknown " +
+        st.ok + "/" + st.missing + "/" + st.unknown + " in " + ms + " ms");
+    panel.webview.postMessage({ type: "flow", data, feedsFile: path.basename(feedsPath(file)), ms });
   } catch (e) {
     panel.webview.postMessage({ type: "flow", error: String(e.message || e) });
   }
 }
 function saveFeeds(feeds) {
-  if (!current) return;
+  if (!current) {
+    if (panel) panel.webview.postMessage({ type: "flow", error: "no source file is attached to this panel; open the blueprint with the fbp command" });
+    return;
+  }
   const p = feedsPath(current.fileName);
-  if (feeds.length) fs.writeFileSync(p, JSON.stringify(feeds, null, 1), "utf8");
-  else if (fs.existsSync(p)) fs.unlinkSync(p);
+  try {
+    if (feeds.length) fs.writeFileSync(p, JSON.stringify(feeds, null, 1), "utf8");
+    else if (fs.existsSync(p)) fs.unlinkSync(p);
+    log("feeds: wrote " + feeds.length + " feed(s) to " + p);
+  } catch (e) {
+    panel.webview.postMessage({ type: "flow", error: "could not write " + p + ": " + String(e.message || e) });
+    return;
+  }
   runFlow(current.fileName);
 }
 

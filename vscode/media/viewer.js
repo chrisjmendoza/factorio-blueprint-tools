@@ -11,8 +11,30 @@
       if (m.type === "copy" && navigator.clipboard) navigator.clipboard.writeText(m.text);
       if (m.type === "open") document.getElementById("filepick").click();
       if (m.type === "export") download("patch.json", JSON.stringify(m.patch, null, 2));
+      if (m.type === "feeds") {
+        // no Python behind a standalone page: hand the feeds file over so it can be placed beside the blueprint
+        setFlowStatus("standalone page: flow cannot run here. Downloaded feeds.json; save it as <name>.feeds.json beside the blueprint and open the print in the VS Code panel.", true);
+        download("feeds.json", JSON.stringify(m.feeds, null, 1));
+      }
     },
   };
+  // Flow progress: the host reports when it starts and finishes; if nothing comes back the most
+  // likely cause is an extension host that has not been reloaded since the code changed.
+  let flowTimer = null, flowTick = null, flowWaitStart = 0;
+  function setFlowStatus(text, error) {
+    const el = document.getElementById("flowstatus");
+    el.textContent = text; el.style.color = error ? "#ff6b6b" : "";
+  }
+  function flowWaiting(on) {
+    clearTimeout(flowTimer); clearInterval(flowTick); flowTimer = flowTick = null;
+    if (!on) return;
+    flowWaitStart = Date.now();
+    flowTick = setInterval(() => setFlowStatus("recomputing flow… " + Math.round((Date.now() - flowWaitStart) / 1000) + "s"), 500);
+    flowTimer = setTimeout(() => {
+      clearInterval(flowTick);
+      setFlowStatus("no answer from the extension host after 15 s. Run \"Developer: Reload Window\" so the current extension code loads, then re-tick a feed. Check the fbp output channel for errors.", true);
+    }, 15000);
+  }
   const $ = (id) => document.getElementById(id);
   const canvas = $("map"), ctx = canvas.getContext("2d");
   const tip = $("tip"), detail = $("detail"), coords = $("coords");
@@ -215,7 +237,9 @@
   function load(msg) {
     bp = msg.bp; footprints = msg.footprints || {}; recipeList = msg.recipes || []; fileName = msg.file || "";
     itemList = msg.items || itemList; flowData = null; feeds = [];
-    fillItemOptions(); renderItems(); $("flowstatus").textContent = inVsCode ? "computing flow…" : "flow needs the VS Code extension";
+    fillItemOptions(); renderItems();
+    if (inVsCode) { setFlowStatus("computing flow…"); flowWaiting(true); }
+    else setFlowStatus("standalone page: flow and feeds need the VS Code panel (fbp: Open blueprint viewer)", true);
     base = bp.entities || [];
     edits.remove.clear(); edits.recipe.clear(); edits.replace.clear(); edits.add.length = 0; edits.history.length = 0;
     nextTemp = -1; pinned = null; hover = null;
@@ -829,7 +853,7 @@
     resize();
   };
   function pushFeeds() {
-    $("flowstatus").textContent = "recomputing flow…";
+    if (inVsCode) flowWaiting(true);
     vscode.postMessage({ type: "feeds", feeds });
     renderItems(); draw();
   }
@@ -956,11 +980,15 @@
     if (m.type === "blueprint") { drop.hidden = true; resize(); load(m); }
     if (m.type === "error") { $("file").textContent = "error: " + m.message; }
     if (m.type === "exported") { vscode.postMessage({ type: "status", text: "exported " + m.file }); }
+    if (m.type === "flowstatus") { setFlowStatus(m.text); }
     if (m.type === "flow") {
-      if (m.error) { $("flowstatus").textContent = "flow failed: " + m.error; return; }
+      flowWaiting(false);
+      if (m.error) { setFlowStatus("flow failed: " + m.error, true); return; }
       flowData = m.data; feeds = (m.data.feeds || []).map((f) => Object.assign({}, f));
       if (m.feedsFile) $("feedsfile").textContent = m.feedsFile;
-      $("flowstatus").textContent = Object.keys(flowData.lanes).length + " belts resolved";
+      const st = { ok: 0, missing: 0, unknown: 0 };
+      for (const mm of Object.values(flowData.machines)) if (st[mm.status] !== undefined) st[mm.status]++;
+      setFlowStatus(Object.keys(flowData.lanes).length + " belts resolved · machines " + st.ok + " ok / " + st.missing + " missing / " + st.unknown + " unknown" + (m.ms ? " · " + m.ms + " ms" : ""));
       renderItems(); if (!showFlow && feeds.length) { showFlow = true; $("flow").checked = true; } draw();
     }
   });
