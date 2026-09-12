@@ -1,0 +1,184 @@
+"""Command line interface. Run `fbp -h` or `python -m fbp -h`."""
+import argparse
+import json
+import sys
+from collections import Counter
+
+from . import __version__, codec, gamedata, patch, render
+from .check import check, format_report
+from .model import Grid, kind
+from .trace import Tracer
+
+
+def _grid(path, gd):
+    obj = codec.load(path)
+    bp = codec.first_blueprint(obj)
+    return obj, bp, Grid(bp, gd.footprints())
+
+
+def cmd_info(a, gd):
+    obj = codec.load(a.file)
+    for path, bp in codec.blueprints(obj):
+        grid = Grid(bp, gd.footprints())
+        ents = bp.get("entities", [])
+        print("%s  game %s  entities %d  tiles %d  wires %d  bbox %s" %
+              (" / ".join(p or "(unnamed)" for p in path), codec.game_version(bp), len(ents),
+               len(bp.get("tiles", [])), len(bp.get("wires", [])), grid.bbox() if ents else "-"))
+        if a.counts:
+            for name, n in Counter(e["name"] for e in ents).most_common():
+                print("  %5d %s" % (n, name))
+        if a.recipes:
+            for rec, n in Counter(e.get("recipe") for e in ents if e.get("recipe")).most_common():
+                print("  %3d %s" % (n, rec))
+
+
+def cmd_decode(a, gd):
+    obj = codec.load(a.file)
+    text = json.dumps(obj, indent=1)
+    if a.out:
+        open(a.out, "w", encoding="utf-8").write(text)
+        print("wrote", a.out)
+    else:
+        print(text)
+
+
+def cmd_encode(a, gd):
+    obj = json.load(open(a.file, encoding="utf-8"))
+    text = codec.encode(obj)
+    if a.out:
+        open(a.out, "w", encoding="utf-8").write(text)
+        print("wrote %s (%d chars)" % (a.out, len(text)))
+    else:
+        print(text)
+
+
+def cmd_render(a, gd):
+    obj, bp, grid = _grid(a.file, gd)
+    if a.png:
+        print("wrote", render.png(grid, a.png, a.scale, a.x0, a.y0, a.x1, a.y1))
+        return
+    if None in (a.x0, a.y0, a.x1, a.y1):
+        a.x0, a.y0, a.x1, a.y1 = grid.bbox()
+    print(render.ascii_region(grid, a.x0, a.y0, a.x1, a.y1, legend=not a.no_legend))
+    if a.entities:
+        print()
+        print(render.listing(grid, a.x0, a.y0, a.x1, a.y1))
+
+
+def cmd_find(a, gd):
+    obj, bp, grid = _grid(a.file, gd)
+    for e in grid.find(name=a.name, recipe=a.recipe):
+        extra = {k: v for k, v in e.items() if k not in ("entity_number", "name", "position", "recipe", "recipe_quality")}
+        print(grid.describe(e), json.dumps(extra) if a.verbose and extra else "")
+
+
+def cmd_trace(a, gd):
+    obj, bp, grid = _grid(a.file, gd)
+    tr = Tracer(grid, gd)
+    targets = [grid.byid[i] for i in a.id] if a.id else list(grid.find(recipe=a.recipe, name=a.name))
+    if not targets:
+        sys.exit("nothing matched")
+    for m in targets:
+        if kind(m) in ("crafter", "furnace"):
+            print(tr.format_machine(m))
+        elif kind(m) == "belt":
+            print(grid.describe(m), json.dumps(tr.summarize_line(m), default=str))
+        else:
+            print(grid.describe(m), "is not a machine or belt")
+        print()
+
+
+def cmd_check(a, gd):
+    obj, bp, grid = _grid(a.file, gd)
+    findings, inconclusive, unknown = check(grid, gd, a.recipe)
+    print(format_report(grid, findings, inconclusive, unknown, gd.source))
+    sys.exit(1 if findings else 0)
+
+
+def cmd_patch(a, gd):
+    obj = codec.load(a.file)
+    bp = codec.first_blueprint(obj)
+    p = json.load(open(a.patch, encoding="utf-8"))
+    log = []
+    patch.apply(bp, p, gd.footprints(), log)
+    print("\n".join(log))
+    if a.label:
+        bp["label"] = a.label
+    codec.save(obj, a.out)
+    print("wrote", a.out)
+
+
+def cmd_crop(a, gd):
+    obj = codec.load(a.file)
+    bp = codec.first_blueprint(obj)
+    new = patch.crop(bp, a.x0, a.y0, a.x1, a.y1, gd.footprints())
+    if a.label:
+        new["label"] = a.label
+    codec.save({"blueprint": new}, a.out)
+    print("wrote %s: %d entities" % (a.out, len(new["entities"])))
+
+
+def cmd_gamedata(a, gd):
+    slim, path = gamedata.build_slim(a.dump)
+    print("wrote %s: %d recipes, %d footprints" % (path, len(slim["recipes"]), len(slim["footprints"])))
+
+
+def cmd_recipe(a, gd):
+    for name in a.name:
+        r = gd.recipes.get(name)
+        print(name, json.dumps(r) if r else "UNKNOWN (source: %s)" % gd.source)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="fbp", description="Factorio 2.0 blueprint tools (%s)" % __version__)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("info", help="summary of a blueprint or book"); s.add_argument("file")
+    s.add_argument("--counts", action="store_true", help="entity counts"); s.add_argument("--recipes", action="store_true")
+    s.set_defaults(fn=cmd_info)
+
+    s = sub.add_parser("decode", help="blueprint string -> JSON"); s.add_argument("file"); s.add_argument("-o", "--out")
+    s.set_defaults(fn=cmd_decode)
+    s = sub.add_parser("encode", help="JSON -> blueprint string"); s.add_argument("file"); s.add_argument("-o", "--out")
+    s.set_defaults(fn=cmd_encode)
+
+    s = sub.add_parser("render", help="ASCII map of a region, or PNG of the whole print")
+    s.add_argument("file"); s.add_argument("x0", type=int, nargs="?"); s.add_argument("y0", type=int, nargs="?")
+    s.add_argument("x1", type=int, nargs="?"); s.add_argument("y1", type=int, nargs="?")
+    s.add_argument("--entities", action="store_true", help="list machines, inserters and chests in the region")
+    s.add_argument("--no-legend", action="store_true"); s.add_argument("--png"); s.add_argument("--scale", type=int, default=6)
+    s.set_defaults(fn=cmd_render)
+
+    s = sub.add_parser("find", help="list entities by name or recipe"); s.add_argument("file")
+    s.add_argument("--name"); s.add_argument("--recipe"); s.add_argument("-v", "--verbose", action="store_true")
+    s.set_defaults(fn=cmd_find)
+
+    s = sub.add_parser("trace", help="inputs, outputs and belt lines of machines"); s.add_argument("file")
+    s.add_argument("--recipe"); s.add_argument("--name"); s.add_argument("--id", type=int, nargs="*")
+    s.set_defaults(fn=cmd_trace)
+
+    s = sub.add_parser("check", help="flag crafters with an ingredient nothing nearby supplies"); s.add_argument("file")
+    s.add_argument("--recipe"); s.set_defaults(fn=cmd_check)
+
+    s = sub.add_parser("patch", help="apply a JSON patch and write a new string"); s.add_argument("file")
+    s.add_argument("patch"); s.add_argument("-o", "--out", required=True); s.add_argument("--label")
+    s.set_defaults(fn=cmd_patch)
+
+    s = sub.add_parser("crop", help="cut a region out into its own blueprint"); s.add_argument("file")
+    for n in ("x0", "y0", "x1", "y1"):
+        s.add_argument(n, type=int)
+    s.add_argument("-o", "--out", required=True); s.add_argument("--label"); s.set_defaults(fn=cmd_crop)
+
+    s = sub.add_parser("gamedata", help="build data/gamedata.json from the game's data-raw dump")
+    s.add_argument("--dump", help="path to data-raw-dump.json (default: script-output)"); s.set_defaults(fn=cmd_gamedata)
+
+    s = sub.add_parser("recipe", help="show recipe(s) from the loaded data"); s.add_argument("name", nargs="+")
+    s.set_defaults(fn=cmd_recipe)
+
+    a = ap.parse_args(argv)
+    gd = gamedata.GameData() if a.cmd != "gamedata" else None
+    a.fn(a, gd)
+
+
+if __name__ == "__main__":
+    main()
