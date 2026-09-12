@@ -186,6 +186,8 @@
         changed: edits.recipe.has(id), baseId: id });
     }
     for (const a of edits.add) ents.push({ e: a, cells: cellsOf(a), kind: kindOf(a.name), added: true, baseId: null });
+    let temp = -1;
+    for (const r of ents) r.flowId = r.baseId !== null ? r.baseId : temp--;
     tiles = new Map();
     let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
     for (const r of ents) for (const [x, y] of r.cells) {
@@ -323,8 +325,8 @@
       // lane are shown as bands along the stripe. Unknown furnace output is grey.
       for (const r of ents) {
         if (r.kind[0] !== "belt" && r.kind[0] !== "underground" && r.kind[0] !== "splitter") continue;
-        if (r.removed || r.baseId === null || !visible(r)) continue;
-        const L = flowData.lanes[String(r.baseId)]; if (!L) continue;
+        if (r.removed || !visible(r)) continue;
+        const L = flowData.lanes[String(r.flowId)]; if (!L) continue;
         const d = (r.e.direction || 0) & 12, v = DIRS[d] || [0, -1], lv = [v[1], -v[0]];
         for (const [x, y] of r.cells) {
           for (const [lane, sign] of [["left", 1], ["right", -1]]) {
@@ -343,8 +345,8 @@
         }
       }
       for (const r of ents) {
-        if ((r.kind[0] !== "crafter" && r.kind[0] !== "furnace") || r.removed || r.baseId === null || !visible(r)) continue;
-        const m = flowData.machines[String(r.baseId)]; if (!m) continue;
+        if ((r.kind[0] !== "crafter" && r.kind[0] !== "furnace") || r.removed || !visible(r)) continue;
+        const m = flowData.machines[String(r.flowId)]; if (!m) continue;
         ctx.lineWidth = Math.max(2, scale / 5);
         if (m.status === "ok") ctx.strokeStyle = "#39d353";
         else if (m.status === "missing") ctx.strokeStyle = "#ff3b3b";
@@ -576,15 +578,15 @@
       s += q ? "\npair: " + (q.pair.baseId !== null ? "#" + q.pair.baseId : "(new)") + " @ (" + q.pair.e.position.x + ", " + q.pair.e.position.y + "), gap " + q.gap + " of max " + (TIER[tierOf(e.name)].reach - 1)
              : "\npair: NONE within reach " + (TIER[tierOf(e.name)].reach - 1);
     }
-    if (flowData && r.baseId !== null) {
-      const L = flowData.lanes[String(r.baseId)];
+    if (flowData) {
+      const L = flowData.lanes[String(r.flowId)];
       if (L) s += "\nleft lane: " + (L.left.join(", ") || "-") + "\nright lane: " + (L.right.join(", ") || "-");
-      const m = flowData.machines[String(r.baseId)];
+      const m = flowData.machines[String(r.flowId)];
       if (m) {
         s += "\nflow: " + m.status.toUpperCase() + (m.missing.length ? " missing " + m.missing.join(", ") : "");
         s += "\nreceives: " + (m.in.join(", ") || "-") + "\nmakes: " + (m.out.join(", ") || "-");
       }
-      const c = flowData.chests[String(r.baseId)];
+      const c = flowData.chests[String(r.flowId)];
       if (c) s += "\nholds: " + c.join(", ");
     }
     if (e.bar !== undefined) s += "\nbar: " + e.bar;
@@ -614,18 +616,31 @@
     detail.appendChild(button("copy id", () => vscode.postMessage({ type: "copy", text: String(r.baseId) })));
     detail.appendChild(button("copy position", () => vscode.postMessage({ type: "copy", text: e.position.x + " " + e.position.y })));
     detail.appendChild(button("copy JSON", () => vscode.postMessage({ type: "copy", text: JSON.stringify(e) })));
+    if (r.kind[0] === "crafter" && !r.removed) {
+      // Recipe picker: type to filter the 600+ recipes. Changing it is an edit, so edit mode switches on.
+      const wrap = document.createElement("div"); wrap.className = "recipepick";
+      const lab = document.createElement("span"); lab.textContent = "recipe: "; wrap.appendChild(lab);
+      const inp = document.createElement("input"); inp.setAttribute("list", "recipelist"); inp.placeholder = e.recipe || "type a recipe…";
+      inp.value = ""; inp.spellcheck = false; inp.title = "type to search, pick one, Enter applies";
+      const apply = () => {
+        const v = inp.value.trim(); if (!v || v === e.recipe) return;
+        if (recipeList.length && !recipeList.includes(v)) { inp.style.borderColor = "#ff3b3b"; inp.title = "not a recipe name"; return; }
+        if (!editMode) { $("editmode").checked = true; $("editmode").onchange({ target: $("editmode") }); }
+        act({ kind: "recipe", r, recipe: v });
+      };
+      inp.onchange = apply; inp.onkeydown = (ev) => { if (ev.key === "Enter") apply(); ev.stopPropagation(); };
+      wrap.appendChild(inp); detail.appendChild(wrap);
+      if (!$("recipelist")) {
+        const dl = document.createElement("datalist"); dl.id = "recipelist";
+        for (const name of recipeList) { const o = document.createElement("option"); o.value = name; dl.appendChild(o); }
+        document.body.appendChild(dl);
+      }
+    }
     if (editMode) {
       detail.appendChild(document.createElement("br"));
       detail.appendChild(button(r.removed ? "restore" : "remove", () => act({ kind: "toggleRemove", r }), "Delete"));
       if (DIRECTIONAL.test(e.name) || r.cells.length > 1) detail.appendChild(button("rotate", () => act({ kind: "rotate", r }), "R"));
       if (r.kind[0] === "underground") detail.appendChild(button("flip in/out", () => act({ kind: "flip", r }), "T"));
-      if (r.kind[0] === "crafter" || r.kind[0] === "furnace") {
-        const sel = document.createElement("select"); sel.style.maxWidth = "100%";
-        const opt0 = document.createElement("option"); opt0.value = ""; opt0.textContent = "(recipe: " + (e.recipe || "none") + ")"; sel.appendChild(opt0);
-        for (const name of recipeList) { const o = document.createElement("option"); o.value = name; o.textContent = name; sel.appendChild(o); }
-        if (!recipeList.length) { const inp = document.createElement("input"); inp.placeholder = "recipe name"; inp.onchange = () => act({ kind: "recipe", r, recipe: inp.value.trim() }); detail.appendChild(inp); }
-        else { sel.onchange = () => { if (sel.value) act({ kind: "recipe", r, recipe: sel.value }); }; detail.appendChild(sel); }
-      }
     }
     const pre2 = document.createElement("pre"); pre2.textContent = JSON.stringify(e, null, 1); detail.appendChild(pre2);
   }
@@ -670,6 +685,7 @@
     }
     rebuild(true);
     pinned = follow === null ? null : ents.find((r) => (typeof follow === "number" ? r.baseId === follow : r.e === follow)) || null;
+    if (flowData) computeFlowLocally();
     showDetail(pinned);
   }
   function undo() {
@@ -678,11 +694,11 @@
     edits.recipe.clear(); for (const [k, v] of s.recipe) edits.recipe.set(k, v);
     edits.replace.clear(); for (const [k, v] of s.replace) edits.replace.set(k, v);
     edits.add.length = 0; edits.add.push(...s.add);
-    pinned = null; rebuild(true); showDetail(null);
+    pinned = null; rebuild(true); if (flowData) computeFlowLocally(); showDetail(null);
   }
   function buildPatch() {
     const remove = new Set(edits.remove);
-    const add = edits.add.map(clone);
+    const add = edits.add.map((a) => { const c = clone(a); delete c.entity_number; return c; });
     for (const [id, rep] of edits.replace) { remove.add(id); const c = clone(rep); delete c.entity_number; add.push(c); }
     const recipe = {}; for (const [id, rec] of edits.recipe) if (!remove.has(id)) recipe[String(id)] = rec;
     const patch = { _comment: "Made in the fbp viewer for '" + (bp.label || fileName) + "'. Rotations are remove+add of a clone." };
@@ -883,7 +899,9 @@
     if (!bp || typeof FBPFlow === "undefined") { setFlowStatus("flow.js not loaded", true); return; }
     const t0 = performance.now();
     try {
-      flowData = FBPFlow.compute(bp, footprints, gamedataForFlow || { recipes: {} }, feeds);
+      // run on the edited view: removed entities gone, recipe changes and additions in, keyed by flowId
+      const view = { entities: ents.filter((r) => !r.removed).map((r) => Object.assign({}, r.e, { entity_number: r.flowId })) };
+      flowData = FBPFlow.compute(view, footprints, gamedataForFlow || { recipes: {} }, feeds);
     } catch (e) { setFlowStatus("flow failed: " + (e.message || e), true); return; }
     const st = { ok: 0, missing: 0, unknown: 0 };
     for (const m of Object.values(flowData.machines)) if (st[m.status] !== undefined) st[m.status]++;
@@ -941,7 +959,7 @@
       const missing = Object.entries(flowData.machines).filter(([id, m]) => m.status === "missing");
       if (missing.length) {
         head("missing inputs (" + missing.length + ") · click to go there");
-        const byRow = new Map(ents.filter((r) => r.baseId !== null).map((r) => [String(r.baseId), r]));
+        const byRow = new Map(ents.map((r) => [String(r.flowId), r]));
         missing.sort((a, b) => (a[1].missing.join() + a[0]).localeCompare(b[1].missing.join() + b[0]));
         for (const [id, m] of missing) {
           const r = byRow.get(id); if (!r) continue;

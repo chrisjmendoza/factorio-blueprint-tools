@@ -54,3 +54,5 @@ body.standalone #main { height: calc(100% - 35px - 29px); }
 body.standalone.editing #main { height: calc(100% - 66px - 29px); }
 body.standalone.feeding #main { height: calc(100% - 66px - 29px); }
 body.standalone.editing.feeding #main { height: calc(100% - 97px - 29px); }
+.recipepick { display: flex; gap: 6px; align-items: center; margin: 4px 0 6px; }
+.recipepick input { flex: 1; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #ddd); border: 1px solid var(--vscode-input-border, #555); padding: 2px 6px; font: inherit; }
