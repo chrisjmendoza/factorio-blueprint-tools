@@ -111,13 +111,18 @@
     if (isUnderground(b.name) && b.type === "input") { const p = ugPair(g, b); return p ? [tileOf(p)] : []; }
     return [[x + dx, y + dy]];
   }
+  const sameAxis = (a, b) => (((a.direction || 0) & 12) % 8) === (((b.direction || 0) & 12) % 8);
   function upstream(g, b) {
-    if (isUnderground(b.name) && b.type === "output") { const p = ugPair(g, b); return p ? [p] : []; }
+    // an underground exit receives through its tunnel and from belts running into its SIDE; the
+    // flow's underground filter then keeps only the lane aligned with the open half
     const found = new Map();
+    const exit = isUnderground(b.name) && b.type === "output";
+    if (exit) { const p = ugPair(g, b); if (p) found.set(p.entity_number, p); }
     for (const [x, y] of g.cellsOf(b)) {
       for (const [dx, dy] of Object.values(DIRS)) {
         const f = g.beltAt(x + dx, y + dy);
         if (!f || f === b) continue;
+        if (exit && sameAxis(f, b)) continue;
         if (outputs(g, f).some((o) => same(o, [x, y]))) found.set(f.entity_number, f);
       }
     }
@@ -191,7 +196,7 @@
     }
     function dropLane(ins, belt, dropCell) {
       const [ix, iy] = tileOf(ins), lv = leftOf(belt.direction || 0);
-      const rel = [ix - dropCell[0], iy - dropCell[1]];
+      const rel = [Math.sign(ix - dropCell[0]), Math.sign(iy - dropCell[1])];   // long-handed inserters stand 2 tiles away
       if (same(rel, lv)) return "right";
       if (same(rel, [-lv[0], -lv[1]])) return "left";
       return "right";

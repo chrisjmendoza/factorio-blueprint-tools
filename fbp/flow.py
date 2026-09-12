@@ -155,6 +155,7 @@ class Flow:
         ix, iy = tile_of(ins)
         lv = left_of(belt.get("direction", 0))
         rel = (ix - drop_cell[0], iy - drop_cell[1])
+        rel = ((rel[0] > 0) - (rel[0] < 0), (rel[1] > 0) - (rel[1] < 0))   # long-handed inserters stand 2 tiles away
         if rel == lv:
             return "right"       # standing on the belt's left: items land on the far (right) lane
         if rel == (-lv[0], -lv[1]):

@@ -388,3 +388,35 @@ def test_js_flow_matches_python(gd, tmp_path):
     assert a["lanes"] == b["lanes"]
     assert a["machines"] == b["machines"]
     assert a["chests"] == b["chests"]
+
+
+def test_flow_long_inserter_drops_on_far_lane(gd):
+    # eastbound belt; a long-handed inserter two tiles SOUTH drops on the far = north = left lane
+    bp = {"entities": [
+        {"entity_number": 1, "name": "transport-belt", "position": {"x": 5.5, "y": 2.5}, "direction": 4},
+        {"entity_number": 2, "name": "transport-belt", "position": {"x": 6.5, "y": 2.5}, "direction": 4},
+        {"entity_number": 3, "name": "long-handed-inserter", "position": {"x": 5.5, "y": 4.5}, "direction": 8},   # picks (5,6), drops (5,2)
+        {"entity_number": 4, "name": "assembling-machine-1", "position": {"x": 5.5, "y": 7.5}, "recipe": "battery"},
+    ], "wires": []}
+    f = Flow(Grid(bp, gd.footprints()), gd).run()
+    assert f.lanes_of(f.g.byid[2]) == {"left": {"battery"}, "right": set()}
+
+
+def test_flow_sideload_into_underground_exit_passes_one_lane(gd):
+    # A southbound belt carrying frames (right/west lane) and batteries (left/east lane) runs into the side of a
+    # west-facing underground EXIT. Only the west half of the exit is open belt, so frames pass and batteries stop.
+    bp = {"entities": [
+        {"entity_number": 1, "name": "transport-belt", "position": {"x": 4.5, "y": 1.5}, "direction": 8},
+        {"entity_number": 2, "name": "transport-belt", "position": {"x": 4.5, "y": 2.5}, "direction": 8},
+        {"entity_number": 3, "name": "underground-belt", "position": {"x": 8.5, "y": 3.5}, "direction": 12, "type": "input"},
+        {"entity_number": 4, "name": "underground-belt", "position": {"x": 4.5, "y": 3.5}, "direction": 12, "type": "output"},
+        {"entity_number": 5, "name": "transport-belt", "position": {"x": 3.5, "y": 3.5}, "direction": 12},
+    ], "wires": []}
+    feeds = [{"x": 4, "y": 1, "items": ["flying-robot-frame"], "lane": "right"}, {"x": 4, "y": 1, "items": ["battery"], "lane": "left"}]
+    f = Flow(Grid(bp, gd.footprints()), gd, feeds).run()
+    out = f.lanes_of(f.g.byid[5])
+    assert "flying-robot-frame" in out["left"] | out["right"]
+    assert "battery" not in out["left"] | out["right"]
+    # the exit still receives through its tunnel
+    f2 = Flow(Grid(bp, gd.footprints()), gd, [{"x": 8, "y": 3, "items": ["pipe"], "lane": "both"}]).run()
+    assert "pipe" in f2.lanes_of(f2.g.byid[5])["left"]

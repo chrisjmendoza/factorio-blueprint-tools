@@ -16,6 +16,7 @@ def drop_lane(inserter, belt):
     ix, iy = tile_of(inserter)
     dx, dy = DIRS[belt.get("direction", 0) & 12]
     rel = (ix - drop[0], iy - drop[1])
+    rel = ((rel[0] > 0) - (rel[0] < 0), (rel[1] > 0) - (rel[1] < 0))   # long-handed inserters stand 2 tiles away
     if rel == (dy, -dx):        # inserter stands on the belt's left: items land on the far (right) lane
         return "right"
     if rel == (-dy, dx):

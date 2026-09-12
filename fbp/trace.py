@@ -43,16 +43,27 @@ class Tracer:
                     return f
         return None
 
+    def _same_axis(self, a, b):
+        return ((a.get("direction", 0) & 12) % 8) == ((b.get("direction", 0) & 12) % 8)
+
     def upstream(self, b):
-        """Belt entities that deliver into b."""
-        if is_underground(b) and b.get("type") == "output":
-            pair = self.underground_pair(b)
-            return [pair] if pair else []
+        """Belt entities that deliver into b.
+
+        An underground exit receives from its entrance through the tunnel, and also from belts
+        running into its SIDE (only the lane aligned with the open half gets through; the flow
+        applies that filter). Nothing can feed it along its own axis except the tunnel."""
         found = {}
+        exit_ = is_underground(b) and b.get("type") == "output"
+        if exit_:
+            pair = self.underground_pair(b)
+            if pair:
+                found[pair["entity_number"]] = pair
         for (x, y) in self.g.cells_of(b):
             for dx, dy in DIRS.values():
                 f = self.g.belt_at(x + dx, y + dy)
                 if f is None or f is b:
+                    continue
+                if exit_ and self._same_axis(f, b):
                     continue
                 if (x, y) in self.outputs(f):
                     found[f["entity_number"]] = f
@@ -63,8 +74,9 @@ class Tracer:
         for q in self.outputs(b):
             f = self.g.belt_at(*q)
             if f is not None and f is not b:
-                if is_underground(f) and f.get("type") == "output" and not (is_underground(b) and b.get("type") == "input"):
-                    continue  # the back of an underground exit does not accept items
+                if is_underground(f) and f.get("type") == "output" and self._same_axis(b, f) \
+                        and not (is_underground(b) and b.get("type") == "input"):
+                    continue  # the back of an underground exit does not accept items; its sides do
                 found[f["entity_number"]] = f
         return list(found.values())
 
