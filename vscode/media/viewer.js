@@ -6,8 +6,11 @@
 // diffs. Rotations and moves are expressed as remove + add of a clone.
 (function () {
   const inVsCode = typeof acquireVsCodeApi === "function";
-  const vscode = inVsCode ? acquireVsCodeApi() : {
+  const hostApi = inVsCode ? acquireVsCodeApi() : null;
+  const vscode = {
     postMessage(m) {
+      if (m.type === "status") toast(m.text);
+      if (hostApi) { hostApi.postMessage(m); return; }
       if (m.type === "copy" && navigator.clipboard) navigator.clipboard.writeText(m.text);
       if (m.type === "open") document.getElementById("filepick").click();
       if (m.type === "export") download("patch.json", JSON.stringify(m.patch, null, 2));
@@ -35,6 +38,12 @@
     }, 15000);
   }
   const $ = (id) => document.getElementById(id);
+  let toastTimer = null;
+  function toast(text) {
+    const el = document.getElementById("toast"); if (!el) return;
+    if (!text) { el.hidden = true; return; }
+    el.textContent = text; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 2500);
+  }
   function feedsKey() { return "fbp.feeds." + ((bp && bp.label) || fileName || "untitled"); }
   if (!inVsCode) { $("standalone").hidden = false; document.body.classList.add("standalone"); }
   const canvas = $("map"), ctx = canvas.getContext("2d");
@@ -793,7 +802,7 @@
         draw(); dragging = false; canvas.classList.remove("dragging"); return;
       }
       const under = entityAt(ev.offsetX, ev.offsetY);
-      if (feedMode) {
+      if (feedMode && !(editMode && ghost)) {
         const [tx, ty] = tileAt(ev.offsetX, ev.offsetY);
         const item = $("feeditem").value;
         if (!item) vscode.postMessage({ type: "status", text: "pick an item first" });
@@ -890,6 +899,7 @@
   $("itemlegend").onchange = (ev) => { showItemLegend = ev.target.checked; draw(); };
   $("feedmode").onchange = (ev) => {
     feedMode = ev.target.checked; document.body.classList.toggle("feeding", feedMode);
+    if (feedMode && editMode) { editMode = false; $("editmode").checked = false; document.body.classList.remove("editing"); ghost = null; }
     if (feedMode && !showFlow) { showFlow = true; $("flow").checked = true; }
     resize();
   };
@@ -976,7 +986,11 @@
     }
   }
   let flowHighlight = "";
-  $("editmode").onchange = (ev) => { editMode = ev.target.checked; document.body.classList.toggle("editing", editMode); refreshGhost(); showDetail(pinned); draw(); };
+  $("editmode").onchange = (ev) => {
+    editMode = ev.target.checked; document.body.classList.toggle("editing", editMode);
+    if (editMode && feedMode) { feedMode = false; $("feedmode").checked = false; document.body.classList.remove("feeding"); }
+    refreshGhost(); showDetail(pinned); resize();
+  };
   $("search").oninput = (ev) => {
     highlight = ev.target.value.trim();
     const n = highlight ? ents.filter(matches).length : 0;
