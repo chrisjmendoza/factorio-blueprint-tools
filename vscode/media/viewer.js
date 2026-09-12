@@ -26,10 +26,24 @@
     "curved-rail-b", "half-diagonal-rail", "cargo-wagon", "locomotive", "fluid-wagon", "artillery-wagon"]);
   const DIRS = { 0: [0, -1], 4: [1, 0], 8: [0, 1], 12: [-1, 0] };
 
+  // Belt tiers: yellow (basic), red (fast), blue (express), green (turbo). Undergrounds are a
+  // darker shade of their tier, splitters a lighter one, so tier reads at a glance.
+  const TIER = {
+    basic: { belt: "#c9a227", ug: "#7d6416", split: "#e6c352", reach: 5, label: "yellow" },
+    fast: { belt: "#d24a3a", ug: "#7f2a20", split: "#e8746a", reach: 7, label: "red" },
+    express: { belt: "#3b7fd6", ug: "#224b82", split: "#6ea3e6", reach: 9, label: "blue" },
+    turbo: { belt: "#3fbf6b", ug: "#24703f", split: "#78d69a", reach: 11, label: "green" },
+  };
+  function tierOf(name) {
+    if (name.startsWith("fast-")) return "fast";
+    if (name.startsWith("express-")) return "express";
+    if (name.startsWith("turbo-")) return "turbo";
+    return "basic";
+  }
   const KINDS = [
     ["belt", /-transport-belt$|^transport-belt$/, "#c9a227"],
-    ["underground", /underground-belt$/, "#8a6f1a"],
-    ["splitter", /splitter$/, "#e0b23a"],
+    ["underground", /underground-belt$/, "#7d6416"],
+    ["splitter", /splitter$/, "#e6c352"],
     ["long inserter", /^long-handed-inserter$/, "#7a6fd6"],
     ["inserter", /inserter$/, "#4f86d9"],
     ["crafter", /^assembling-machine|^chemical-plant$|^oil-refinery$|^centrifuge$|^foundry$|^electromagnetic-plant$|^biochamber$|^cryogenic-plant$|^recycler$/, "#5fae6a"],
@@ -44,12 +58,34 @@
     ["rail", /rail|wagon|locomotive|signal|train-stop/, "#9a9a9a"],
     ["other", /.*/, "#6e6e6e"],
   ];
-  function kindOf(name) { for (const k of KINDS) if (k[1].test(name)) return k; return KINDS[KINDS.length - 1]; }
+  function kindOf(name) {
+    for (const k of KINDS) {
+      if (!k[1].test(name)) continue;
+      if (k[0] === "belt" || k[0] === "underground" || k[0] === "splitter") {
+        const t = TIER[tierOf(name)];
+        return [k[0], k[1], k[0] === "belt" ? t.belt : k[0] === "underground" ? t.ug : t.split];
+      }
+      return k;
+    }
+    return KINDS[KINDS.length - 1];
+  }
+  // Underground pairing, same rule as fbp/trace.py: same name, same direction, opposite type,
+  // first match within the tier's reach, searching forward from an entrance and back from an exit.
+  function ugPair(r) {
+    const e = r.e, d = (e.direction || 0) & 12, v = DIRS[d] || [0, -1];
+    const want = e.type === "input" ? "output" : "input", step = e.type === "input" ? 1 : -1;
+    const [x, y] = r.cells[0], reach = TIER[tierOf(e.name)].reach;
+    for (let k = 1; k <= reach; k++) {
+      const list = tiles.get((x + v[0] * k * step) + "," + (y + v[1] * k * step)) || [];
+      for (const q of list) if (q.e.name === e.name && q.e.type === want && ((q.e.direction || 0) & 12) === d) return { pair: q, gap: k - 1 };
+    }
+    return null;
+  }
 
   let bp = null, footprints = {}, ents = [], tiles = new Map(), bbox = [0, 0, 1, 1];
   let scale = 12, ox = 0, oy = 0;          // pixels per tile, pixel offset of tile (0,0)
   let hover = null, pinned = null, highlight = "";
-  let showWires = false, showLabels = true, showGrid = false;
+  let showWires = false, showLabels = true, showGrid = false, showTunnels = true;
 
   function cellsOf(e) {
     if (UNMODELLED.has(e.name)) return [[Math.floor(e.position.x), Math.floor(e.position.y)]];
@@ -156,8 +192,41 @@
       }
     }
 
+    // underground tunnels: a dashed line between paired ends in the tier colour; unpaired ends outlined red
+    if (showTunnels && scale >= 4) {
+      for (const r of ents) {
+        if (r.kind[0] !== "underground" || r.e.type !== "input") continue;
+        const [x, y] = r.cells[0];
+        if (x < vx0 || x > vx1 || y < vy0 || y > vy1) continue;
+        const p = ugPair(r);
+        if (!p) continue;
+        const [x2, y2] = p.pair.cells[0];
+        ctx.setLineDash([Math.max(2, scale / 3), Math.max(2, scale / 3)]);
+        ctx.lineWidth = Math.max(1, scale / 6);
+        ctx.strokeStyle = TIER[tierOf(r.e.name)].belt;
+        ctx.beginPath(); ctx.moveTo(px(x) + scale / 2, py(y) + scale / 2); ctx.lineTo(px(x2) + scale / 2, py(y2) + scale / 2); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      for (const r of ents) {
+        if (r.kind[0] !== "underground") continue;
+        const [x, y] = r.cells[0];
+        if (x < vx0 || x > vx1 || y < vy0 || y > vy1) continue;
+        if (!ugPair(r)) { ctx.strokeStyle = "#ff3b3b"; ctx.lineWidth = 2; outline(r); }
+      }
+    }
     const sel = pinned || hover;
-    if (sel) { ctx.strokeStyle = pinned ? "#ffd166" : "#ffffff"; ctx.lineWidth = 2; outline(sel); }
+    if (sel) {
+      ctx.strokeStyle = pinned ? "#ffd166" : "#ffffff"; ctx.lineWidth = 2; outline(sel);
+      if (sel.kind[0] === "underground") {
+        // shade the tiles this end could reach, and outline its actual partner
+        const e = sel.e, d = (e.direction || 0) & 12, v = DIRS[d] || [0, -1], step = e.type === "input" ? 1 : -1;
+        const [x, y] = sel.cells[0], reach = TIER[tierOf(e.name)].reach;
+        ctx.fillStyle = "rgba(255,255,255,0.12)";
+        for (let k = 1; k <= reach; k++) ctx.fillRect(px(x + v[0] * k * step), py(y + v[1] * k * step), scale, scale);
+        const p = ugPair(sel);
+        if (p) { ctx.strokeStyle = "#ffd166"; ctx.lineWidth = 2; outline(p.pair); }
+      }
+    }
   }
 
   function wrapText(text, cx, cy, maxW, lh) {
@@ -214,8 +283,13 @@
 
   function legend() {
     const el = document.getElementById("legend"); el.innerHTML = "";
+    for (const [name, t] of Object.entries(TIER)) {
+      const sw = document.createElement("i"); sw.style.background = t.belt;
+      const lab = document.createElement("span"); lab.textContent = name + " belt (" + t.label + "), underground gap " + (t.reach - 1);
+      el.appendChild(sw); el.appendChild(lab);
+    }
     for (const k of KINDS) {
-      if (k[0] === "other") continue;
+      if (k[0] === "other" || k[0] === "belt" || k[0] === "underground" || k[0] === "splitter") continue;
       const sw = document.createElement("i"); sw.style.background = k[2];
       const lab = document.createElement("span"); lab.textContent = k[0];
       el.appendChild(sw); el.appendChild(lab);
@@ -237,7 +311,13 @@
     let s = e.name + " #" + e.entity_number + "  @ (" + p.x + ", " + p.y + ")";
     if (e.recipe) s += "\nrecipe: " + e.recipe;
     if (e.direction !== undefined) s += "\ndirection: " + d + (DIRS[d & 12] ? " (" + ["N", "E", "S", "W"][(d & 12) / 4] + ")" : "");
-    if (e.type) s += "\ntype: " + e.type;
+    if (e.type) s += "\ntype: " + e.type + (e.type === "input" ? " (entrance)" : " (exit)");
+    if (r.kind[0] === "belt" || r.kind[0] === "underground" || r.kind[0] === "splitter") s += "\ntier: " + tierOf(e.name) + " (" + TIER[tierOf(e.name)].label + ")";
+    if (r.kind[0] === "underground") {
+      const p = ugPair(r);
+      s += p ? "\npair: #" + p.pair.e.entity_number + " @ (" + p.pair.e.position.x + ", " + p.pair.e.position.y + "), gap " + p.gap + " of max " + (TIER[tierOf(e.name)].reach - 1)
+             : "\npair: NONE within reach " + (TIER[tierOf(e.name)].reach - 1) + " (partner outside the print, or a bug)";
+    }
     if (e.bar !== undefined) s += "\nbar: " + e.bar;
     if (e.request_filters) s += "\nrequests: " + (e.request_filters.sections || []).flatMap((s) => (s.filters || []).map((f) => f.name + (f.count ? " " + f.count : ""))).join(", ");
     if (e.control_behavior && e.control_behavior.circuit_condition) {
@@ -306,6 +386,7 @@
   document.getElementById("wires").onchange = (ev) => { showWires = ev.target.checked; draw(); };
   document.getElementById("labels").onchange = (ev) => { showLabels = ev.target.checked; draw(); };
   document.getElementById("gridlines").onchange = (ev) => { showGrid = ev.target.checked; draw(); };
+  document.getElementById("tunnels").onchange = (ev) => { showTunnels = ev.target.checked; draw(); };
   document.getElementById("search").oninput = (ev) => {
     highlight = ev.target.value.trim();
     const n = highlight ? ents.filter(matches).length : 0;

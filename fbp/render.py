@@ -83,10 +83,17 @@ def png(grid, path, scale=6, x0=None, y0=None, x1=None, y1=None):
     w, h = (x1 - x0 + 1) * scale, (y1 - y0 + 1) * scale
     img = Image.new("RGB", (w, h), (28, 28, 30))
     draw = ImageDraw.Draw(img)
+    tier_col = {"fast-": (210, 74, 58), "express-": (59, 127, 214), "turbo-": (63, 191, 107)}
     for e in grid.entities:
         col = COLORS.get(kind(e), COLORS["other"])
         if e["name"] == "small-lamp":
             col = (250, 240, 150)
+        if kind(e) == "belt":
+            for prefix, c in tier_col.items():
+                if e["name"].startswith(prefix):
+                    col = c
+            if is_underground(e):
+                col = tuple(int(v * 0.6) for v in col)
         for cx, cy in grid.cells_of(e):
             if x0 <= cx <= x1 and y0 <= cy <= y1:
                 px, py = (cx - x0) * scale, (cy - y0) * scale

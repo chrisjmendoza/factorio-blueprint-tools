@@ -7,6 +7,11 @@ All notable changes to fbp are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Viewer: belts, undergrounds and splitters are coloured by tier (yellow,
+  red, blue, green for turbo), undergrounds draw a dashed tunnel line to
+  their partner, unpaired ends are outlined red, and hovering an underground
+  shades every tile it could reach and names its partner and gap. The PNG
+  render uses the same tier colours.
 - VS Code extension in `vscode/`: pan-and-zoom canvas viewer for the active
   blueprint string with hover details, click-to-pin with copy id/position/JSON,
   search highlighting, wire overlay, recipe labels and a tile grid. Commands
