@@ -28,6 +28,7 @@ fbp find FILE --recipe R | --name N          list matching entities with ids and
 fbp trace FILE --recipe R | --id N ...       inputs, outputs and belt lines of a machine
 fbp trace FILE --at X Y                      a belt tile: what flows in, and every consumer downstream
 fbp check FILE [--recipe R]                  flag crafters missing an ingredient source; lane-mix warnings
+fbp flow FILE [--feeds F] [--at X Y] [--json OUT]   what can be on each belt lane; machine ok/missing/unknown
 fbp lint FILE [--only CODE ...] [--strict]   belts and inserters that point at nothing useful
 fbp diff A B                                 what changed between two versions (machines, check, lint, lanes)
 fbp patch FILE patch.json -o out.txt         remove / re-recipe / add entities, write new string
@@ -54,6 +55,37 @@ machine as a **problem** only when an ingredient has no plausible source and
 no unknown source is present; otherwise it is **inconclusive**. Fluids are not
 traced, so machines whose recipe is fluid-only on a side are not judged on
 that side.
+
+## What is on the belts
+
+`fbp flow FILE` works out what can be on the left and right lane of every
+belt. It follows inserter drops (far lane), curves (lanes kept), sideloads
+(near lane), the underground half-block, splitter filters, crafter products,
+furnace smelting and chest relays to a fixed point. `--at X Y` prints one
+tile; `--json out.json` writes the whole map, which is what the viewer
+paints. Machines get a status: **ok** when every ingredient reaches them,
+**missing** when something does not, **unknown** when a furnace of unknown
+input could be the supplier.
+
+Furnace output is `smelted?` until you say what goes in. **Edge feeds** are
+items entering the print from outside, declared in `<name>.feeds.json`
+beside the blueprint:
+
+```json
+[{"x": 30, "y": 81, "items": ["iron-ore"], "lane": "both"},
+ {"x": 30, "y": 91, "items": ["copper-ore"], "lane": "right"}]
+```
+
+Declare ore at the head of each furnace column and plates resolve all the way
+down the bus; declare a plate belt entering from another print and the mall
+it feeds lights up. In the viewer, the **flow** toggle paints lanes and
+outlines machines green, red or dashed grey; **feed** mode declares an input
+by picking an item and clicking a belt, and right-click on a marker removes
+it. The feeds file is saved and the flow recomputed on every change.
+
+This is a "could be here" analysis, not a simulation: items are never
+removed by consumption, so a lane that shows two items has both arriving on
+it somewhere upstream.
 
 ## Verifying an edit
 

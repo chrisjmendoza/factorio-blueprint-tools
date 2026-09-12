@@ -78,6 +78,10 @@ with `python -m fbp ...`. Read `docs/belt-patterns.md` before designing belts.
 
 ## Workflow for a fix request
 
+0. If `<name>.feeds.json` exists beside the string, `fbp flow FILE --at X Y`
+   answers "what is on this lane" with the user's declared inputs applied;
+   prefer it over guessing from `trace`. Ask Chris to declare edge feeds in
+   the viewer's feed mode when furnace output shows as `smelted?`.
 1. `fbp info` and `fbp check` on the current string; `fbp trace --recipe R`
    for the machine in question. Confirm the recipe with `fbp recipe R`.
 2. `fbp render FILE x0 y0 x1 y1 --entities` around the cell. Count free ring

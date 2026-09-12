@@ -118,6 +118,34 @@ def cmd_lint(a, gd):
     sys.exit(1 if findings and a.strict else 0)
 
 
+def cmd_flow(a, gd):
+    from .flow import Flow, feeds_path, load_feeds
+    obj, bp, grid = _grid(a.file, gd)
+    fp = a.feeds or feeds_path(a.file)
+    feeds = load_feeds(fp)
+    flow = Flow(grid, gd, feeds).run()
+    if a.json:
+        json.dump(flow.as_json(), open(a.json, "w", encoding="utf-8"))
+        print("wrote", a.json)
+        return
+    if a.at:
+        L = flow.at(*a.at)
+        if L is None:
+            sys.exit("no belt at %s" % (tuple(a.at),))
+        print("belt (%d,%d): left lane %s | right lane %s" % (a.at[0], a.at[1], sorted(L["left"]) or "-", sorted(L["right"]) or "-"))
+        return
+    print("feeds: %s (%d)" % (fp if feeds else "none", len(feeds)))
+    counts = Counter()
+    for L in flow.lanes.values():
+        for i in L["left"] | L["right"]:
+            counts[i] += 1
+    print("items on belts (belt entities carrying each):")
+    for i, n in counts.most_common():
+        print("  %5d %s" % (n, i))
+    empty = sum(1 for b in grid.entities if kind(b) == "belt" and not (flow.lanes_of(b)["left"] or flow.lanes_of(b)["right"]))
+    print("belts with nothing known on them: %d (declare edge feeds to resolve)" % empty)
+
+
 def cmd_diff(a, gd):
     from .diff import compare
     bp_a = codec.first_blueprint(codec.load(a.a))
@@ -196,6 +224,11 @@ def main(argv=None):
     s = sub.add_parser("lint", help="belts and inserters that point at nothing useful"); s.add_argument("file")
     s.add_argument("--only", nargs="*", help="show only these finding codes"); s.add_argument("--strict", action="store_true")
     s.set_defaults(fn=cmd_lint)
+
+    s = sub.add_parser("flow", help="what can be on each belt lane; declare edge inputs in <name>.feeds.json")
+    s.add_argument("file"); s.add_argument("--feeds", help="feeds JSON (default <name>.feeds.json)")
+    s.add_argument("--at", type=int, nargs=2, metavar=("X", "Y")); s.add_argument("--json", help="write full lane map to this file")
+    s.set_defaults(fn=cmd_flow)
 
     s = sub.add_parser("diff", help="what changed between two versions: machines, check, lint, lane mix")
     s.add_argument("a"); s.add_argument("b"); s.set_defaults(fn=cmd_diff)

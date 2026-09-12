@@ -292,3 +292,79 @@ def test_diff_reports_only_changed_machines(bp, gd):
     text, changed, regressions = compare(before, bp, gd)
     assert changed == 1 and "steel-furnace -> copper-cable" in text
     assert "REMOVED" not in text and "ADDED" not in text
+
+
+# -- flow --------------------------------------------------------------------
+
+from fbp.flow import Flow, UNKNOWN_SMELT
+
+
+def flow_bp():
+    """Ore belt (west->east along y=1) -> inserter -> furnace -> inserter -> plate belt (east along y=5),
+    plus a gear assembler pulling from the plate belt and dropping gears on a third belt."""
+    ents = [
+        {"entity_number": 1, "name": "transport-belt", "position": {"x": 0.5, "y": 1.5}, "direction": 4},
+        {"entity_number": 2, "name": "transport-belt", "position": {"x": 1.5, "y": 1.5}, "direction": 4},
+        {"entity_number": 3, "name": "transport-belt", "position": {"x": 2.5, "y": 1.5}, "direction": 4},
+        {"entity_number": 4, "name": "inserter", "position": {"x": 1.5, "y": 2.5}, "direction": 0},   # picks belt (1,1), drops (1,3)
+        {"entity_number": 5, "name": "stone-furnace", "position": {"x": 2, "y": 4}},                   # covers 1-2, 3-4
+        {"entity_number": 6, "name": "inserter", "position": {"x": 1.5, "y": 5.5}, "direction": 0},   # picks furnace (1,4), drops (1,6)
+        {"entity_number": 7, "name": "transport-belt", "position": {"x": 1.5, "y": 6.5}, "direction": 4},
+        {"entity_number": 8, "name": "transport-belt", "position": {"x": 2.5, "y": 6.5}, "direction": 4},
+        {"entity_number": 9, "name": "transport-belt", "position": {"x": 3.5, "y": 6.5}, "direction": 4},
+        {"entity_number": 10, "name": "inserter", "position": {"x": 3.5, "y": 7.5}, "direction": 0},  # picks (3,6), drops (3,8)
+        {"entity_number": 11, "name": "assembling-machine-1", "position": {"x": 3.5, "y": 9.5}, "recipe": "iron-gear-wheel"},
+        {"entity_number": 12, "name": "inserter", "position": {"x": 3.5, "y": 11.5}, "direction": 0}, # picks (3,10), drops (3,12)
+        {"entity_number": 13, "name": "transport-belt", "position": {"x": 3.5, "y": 12.5}, "direction": 4},
+    ]
+    return {"entities": ents, "wires": []}
+
+
+def test_flow_unknown_without_feed(gd):
+    f = Flow(Grid(flow_bp(), gd.footprints()), gd).run()
+    assert f.lanes_of(f.g.byid[8]) == {"left": set(), "right": {UNKNOWN_SMELT}}
+    status, _ = f.machine_status(f.g.byid[11])
+    assert status == "unknown"
+
+
+def test_flow_resolves_with_edge_feed(gd):
+    f = Flow(Grid(flow_bp(), gd.footprints()), gd, feeds=[{"x": 0, "y": 1, "items": ["iron-ore"], "lane": "both"}]).run()
+    plate = f.lanes_of(f.g.byid[9])
+    assert "iron-plate" in plate["left"] | plate["right"] and UNKNOWN_SMELT not in plate["left"] | plate["right"]
+    assert f.machine_out[11] == {"iron-gear-wheel"}
+    assert f.machine_status(f.g.byid[11]) == ("ok", [])
+    gears = f.lanes_of(f.g.byid[13])
+    assert "iron-gear-wheel" in gears["left"] | gears["right"]
+
+
+def test_flow_inserter_drops_on_far_lane(gd):
+    # east-travelling belt: left lane is north. Inserter 6 stands NORTH of belt 7 (it drops southward onto it),
+    # so its items land on the far = south = right lane.
+    f = Flow(Grid(flow_bp(), gd.footprints()), gd, feeds=[{"x": 0, "y": 1, "items": ["iron-ore"], "lane": "both"}]).run()
+    plate = f.lanes_of(f.g.byid[7])
+    assert plate["right"] == {"iron-plate"} and plate["left"] == set()
+
+
+def test_flow_sideload_lands_on_near_lane(gd):
+    # a north belt at x=5 fed from the west by an east belt carrying gears on both lanes (sideload, since a belt behind it exists)
+    bp = {"entities": [
+        {"entity_number": 1, "name": "transport-belt", "position": {"x": 5.5, "y": 6.5}, "direction": 0},
+        {"entity_number": 2, "name": "transport-belt", "position": {"x": 5.5, "y": 5.5}, "direction": 0},
+        {"entity_number": 3, "name": "transport-belt", "position": {"x": 5.5, "y": 4.5}, "direction": 0},
+        {"entity_number": 4, "name": "transport-belt", "position": {"x": 4.5, "y": 5.5}, "direction": 4},
+    ], "wires": []}
+    feeds = [{"x": 4, "y": 5, "items": ["iron-gear-wheel"], "lane": "both"}, {"x": 5, "y": 6, "items": ["pipe"], "lane": "both"}]
+    f = Flow(Grid(bp, gd.footprints()), gd, feeds).run()
+    top = f.lanes_of(f.g.byid[3])
+    # travelling north, the west side is the LEFT lane: gears sideload onto left only; pipes stay on both
+    assert top["left"] == {"iron-gear-wheel", "pipe"} and top["right"] == {"pipe"}
+
+
+def test_flow_curve_keeps_lanes(gd):
+    bp = {"entities": [
+        {"entity_number": 1, "name": "transport-belt", "position": {"x": 4.5, "y": 5.5}, "direction": 4},
+        {"entity_number": 2, "name": "transport-belt", "position": {"x": 5.5, "y": 5.5}, "direction": 0},   # curve: nothing behind it
+        {"entity_number": 3, "name": "transport-belt", "position": {"x": 5.5, "y": 4.5}, "direction": 0},
+    ], "wires": []}
+    f = Flow(Grid(bp, gd.footprints()), gd, [{"x": 4, "y": 5, "items": ["pipe"], "lane": "left"}]).run()
+    assert f.lanes_of(f.g.byid[3]) == {"left": {"pipe"}, "right": set()}

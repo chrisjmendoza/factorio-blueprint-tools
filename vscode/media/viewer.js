@@ -96,6 +96,23 @@
   let hover = null, pinned = null, highlight = "";
   let showWires = false, showLabels = true, showGrid = false, showTunnels = true;
   let editMode = false, nextTemp = -1;
+  // flow: lane contents and machine status computed by `fbp flow` on the host; feeds are user-declared inputs
+  let flowData = null, showFlow = false, feedMode = false, itemList = [], feeds = [];
+  const ITEM_COLORS = {
+    "iron-ore": "#7a8aa0", "copper-ore": "#c46a3a", "stone": "#9c9080", "coal": "#2b2b2b", "iron-plate": "#b9c4d2",
+    "copper-plate": "#e0803f", "steel-plate": "#8e97a6", "stone-brick": "#b08a6a", "iron-gear-wheel": "#a9b6c6",
+    "copper-cable": "#f0a45c", "electronic-circuit": "#3fbf6b", "advanced-circuit": "#e04b4b", "processing-unit": "#4f7be6",
+    "iron-stick": "#c9d3df", "pipe": "#7fb3b0", "engine-unit": "#b27a4a", "electric-engine-unit": "#6aa0d6",
+    "plastic-bar": "#e9e2f0", "sulfur": "#e6d63a", "battery": "#4a6ea0", "flying-robot-frame": "#c0c8d4",
+    "automation-science-pack": "#e04b4b", "logistic-science-pack": "#3fbf6b", "military-science-pack": "#9a9a9a",
+    "chemical-science-pack": "#4fa9e6", "production-science-pack": "#9b59d6", "utility-science-pack": "#e6c94f",
+    "smelted?": "#666666",
+  };
+  function itemColor(name) {
+    if (ITEM_COLORS[name]) return ITEM_COLORS[name];
+    let hsh = 0; for (let i = 0; i < name.length; i++) hsh = (hsh * 31 + name.charCodeAt(i)) >>> 0;
+    return "hsl(" + (hsh % 360) + ",55%,55%)";
+  }
   // edits: base entity number -> action. remove: true; recipe: string; replace: clone entity (rotation/move).
   const edits = { remove: new Set(), recipe: new Map(), replace: new Map(), add: [], history: [] };
 
@@ -197,6 +214,8 @@
 
   function load(msg) {
     bp = msg.bp; footprints = msg.footprints || {}; recipeList = msg.recipes || []; fileName = msg.file || "";
+    itemList = msg.items || itemList; flowData = null; feeds = [];
+    fillItemOptions(); renderItems(); $("flowstatus").textContent = inVsCode ? "computing flow…" : "flow needs the VS Code extension";
     base = bp.entities || [];
     edits.remove.clear(); edits.recipe.clear(); edits.replace.clear(); edits.add.length = 0; edits.history.length = 0;
     nextTemp = -1; pinned = null; hover = null;
@@ -265,6 +284,48 @@
       if (matches(r)) { ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; outline(r); }
     }
 
+    if (showFlow && flowData && scale >= 5) {
+      // Each lane is a stripe on its side of the belt (left of travel = left lane). Several items on a
+      // lane are shown as bands along the stripe. Unknown furnace output is grey.
+      for (const r of ents) {
+        if (r.kind[0] !== "belt" && r.kind[0] !== "underground" && r.kind[0] !== "splitter") continue;
+        if (r.removed || r.baseId === null || !visible(r)) continue;
+        const L = flowData.lanes[String(r.baseId)]; if (!L) continue;
+        const d = (r.e.direction || 0) & 12, v = DIRS[d] || [0, -1], lv = [v[1], -v[0]];
+        for (const [x, y] of r.cells) {
+          for (const [lane, sign] of [["left", 1], ["right", -1]]) {
+            const items = L[lane]; if (!items || !items.length) continue;
+            const cx = px(x) + scale / 2 + lv[0] * sign * scale * 0.25, cy = py(y) + scale / 2 + lv[1] * sign * scale * 0.25;
+            const along = scale * 0.8, across = Math.max(2, scale * 0.3);
+            const n = Math.min(items.length, 4), seg = along / n;
+            for (let i = 0; i < n; i++) {
+              ctx.fillStyle = itemColor(items[i]);
+              if (flowHighlight && items[i] !== flowHighlight) ctx.fillStyle = "rgba(0,0,0,0.35)";
+              const off = -along / 2 + seg * i;
+              if (v[0] === 0) ctx.fillRect(cx - across / 2, cy + off, across, seg - (n > 1 ? 1 : 0));
+              else ctx.fillRect(cx + off, cy - across / 2, seg - (n > 1 ? 1 : 0), across);
+            }
+          }
+        }
+      }
+      for (const r of ents) {
+        if ((r.kind[0] !== "crafter" && r.kind[0] !== "furnace") || r.removed || r.baseId === null || !visible(r)) continue;
+        const m = flowData.machines[String(r.baseId)]; if (!m) continue;
+        ctx.lineWidth = Math.max(2, scale / 5);
+        if (m.status === "ok") ctx.strokeStyle = "#39d353";
+        else if (m.status === "missing") ctx.strokeStyle = "#ff3b3b";
+        else if (m.status === "unknown") { ctx.strokeStyle = "#9a9a9a"; ctx.setLineDash([4, 4]); }
+        else continue;
+        outline(r); ctx.setLineDash([]);
+      }
+    }
+    if (feedMode || (showFlow && feeds.length)) {   // feed markers: a diamond in the item colour
+      for (const f of feeds) {
+        const cx = px(f.x) + scale / 2, cy = py(f.y) + scale / 2, s = Math.max(4, scale * 0.45);
+        ctx.fillStyle = itemColor((f.items || [])[0] || "?"); ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(cx, cy - s); ctx.lineTo(cx + s, cy); ctx.lineTo(cx, cy + s); ctx.lineTo(cx - s, cy); ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+    }
     if (showWires && bp.wires) {
       const byId = new Map(ents.filter((r) => r.baseId !== null).map((r) => [r.baseId, r]));
       ctx.lineWidth = Math.max(1, scale / 12);
@@ -403,6 +464,17 @@
       const q = ugPair(r);
       s += q ? "\npair: " + (q.pair.baseId !== null ? "#" + q.pair.baseId : "(new)") + " @ (" + q.pair.e.position.x + ", " + q.pair.e.position.y + "), gap " + q.gap + " of max " + (TIER[tierOf(e.name)].reach - 1)
              : "\npair: NONE within reach " + (TIER[tierOf(e.name)].reach - 1);
+    }
+    if (flowData && r.baseId !== null) {
+      const L = flowData.lanes[String(r.baseId)];
+      if (L) s += "\nleft lane: " + (L.left.join(", ") || "-") + "\nright lane: " + (L.right.join(", ") || "-");
+      const m = flowData.machines[String(r.baseId)];
+      if (m) {
+        s += "\nflow: " + m.status.toUpperCase() + (m.missing.length ? " missing " + m.missing.join(", ") : "");
+        s += "\nreceives: " + (m.in.join(", ") || "-") + "\nmakes: " + (m.out.join(", ") || "-");
+      }
+      const c = flowData.chests[String(r.baseId)];
+      if (c) s += "\nholds: " + c.join(", ");
     }
     if (e.bar !== undefined) s += "\nbar: " + e.bar;
     if (e.request_filters) s += "\nrequests: " + (e.request_filters.sections || []).flatMap((sec) => (sec.filters || []).map((f) => f.name + (f.count ? " " + f.count : ""))).join(", ");
@@ -552,6 +624,12 @@
   let painting = false, lastPaint = null;
   canvas.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
+    if (feedMode) {
+      const [tx, ty] = tileAt(ev.offsetX, ev.offsetY);
+      const before = feeds.length; feeds = feeds.filter((f) => !(f.x === tx && f.y === ty));
+      if (feeds.length !== before) pushFeeds();
+      return;
+    }
     if (!editMode) return;
     const under = entityAt(ev.offsetX, ev.offsetY);
     if (under) act({ kind: "toggleRemove", r: under });
@@ -570,7 +648,18 @@
     if (painting) { painting = false; lastPaint = null; dragging = false; canvas.classList.remove("dragging"); return; }
     if (dragging && !moved && ev.target === canvas) {
       const under = entityAt(ev.offsetX, ev.offsetY);
-      if (editMode && (ev.ctrlKey || ev.metaKey)) {          // ctrl+click: delete, for hosts that intercept right-click
+      if (feedMode) {
+        const [tx, ty] = tileAt(ev.offsetX, ev.offsetY);
+        const item = $("feeditem").value;
+        if (!item) vscode.postMessage({ type: "status", text: "pick an item first" });
+        else if (!under || !["belt", "underground", "splitter"].includes(under.kind[0])) vscode.postMessage({ type: "status", text: "click a belt tile" });
+        else {
+          const existing = feeds.find((f) => f.x === tx && f.y === ty && f.lane === $("feedlane").value);
+          if (existing) { if (!existing.items.includes(item)) existing.items.push(item); }
+          else feeds.push({ x: tx, y: ty, items: [item], lane: $("feedlane").value });
+          pushFeeds();
+        }
+      } else if (editMode && (ev.ctrlKey || ev.metaKey)) {          // ctrl+click: delete, for hosts that intercept right-click
         if (under) act({ kind: "toggleRemove", r: under });
       } else if (editMode && ghost) {
         const blockers = ghost.cells.flatMap(([x, y]) => (tiles.get(x + "," + y) || []).filter((q) => !q.removed));
@@ -647,6 +736,61 @@
   $("labels").onchange = (ev) => { showLabels = ev.target.checked; draw(); };
   $("gridlines").onchange = (ev) => { showGrid = ev.target.checked; draw(); };
   $("tunnels").onchange = (ev) => { showTunnels = ev.target.checked; draw(); };
+  $("flow").onchange = (ev) => { showFlow = ev.target.checked; draw(); };
+  $("feedmode").onchange = (ev) => {
+    feedMode = ev.target.checked; document.body.classList.toggle("feeding", feedMode);
+    if (feedMode && !showFlow) { showFlow = true; $("flow").checked = true; }
+    resize();
+  };
+  function pushFeeds() {
+    $("flowstatus").textContent = "recomputing flow…";
+    vscode.postMessage({ type: "feeds", feeds });
+    renderItems(); draw();
+  }
+  function fillItemOptions() {
+    const sel = $("feeditem"); const keep = sel.value; sel.innerHTML = "";
+    const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "(item)"; sel.appendChild(o0);
+    const common = ["iron-ore", "copper-ore", "stone", "coal", "iron-plate", "copper-plate", "steel-plate", "stone-brick", "electronic-circuit", "advanced-circuit", "iron-gear-wheel", "copper-cable", "plastic-bar", "sulfur"];
+    for (const name of common.concat(itemList.filter((n) => !common.includes(n)))) {
+      const o = document.createElement("option"); o.value = name; o.textContent = name; sel.appendChild(o);
+    }
+    sel.value = keep;
+  }
+  // side panel: items seen on belts with their colours, and the declared feeds with a remove button each
+  function renderItems() {
+    const el = $("items"); el.innerHTML = "";
+    if (!flowData && !feeds.length) return;
+    const head = (t) => { const h4 = document.createElement("h4"); h4.textContent = t; el.appendChild(h4); };
+    if (feeds.length) {
+      head("edge feeds");
+      feeds.forEach((f, i) => {
+        const div = document.createElement("div"); div.className = "feed";
+        const b = document.createElement("button"); b.textContent = "×"; b.title = "remove this feed"; b.onclick = () => { feeds.splice(i, 1); pushFeeds(); };
+        const sw = document.createElement("i"); sw.style.background = itemColor(f.items[0] || "?");
+        const span = document.createElement("span"); span.textContent = f.items.join("+") + " @ (" + f.x + "," + f.y + ") " + f.lane;
+        span.style.cursor = "pointer"; span.onclick = () => { ox = canvas.width / 2 - (f.x + 0.5) * scale; oy = canvas.height / 2 - (f.y + 0.5) * scale; draw(); };
+        div.appendChild(b); div.appendChild(sw); div.appendChild(span); el.appendChild(div);
+      });
+    }
+    if (flowData) {
+      const counts = {};
+      for (const L of Object.values(flowData.lanes)) for (const i of L.left.concat(L.right)) counts[i] = (counts[i] || 0) + 1;
+      const names = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+      head("on belts (" + names.length + " items)");
+      for (const n of names) {
+        const sw = document.createElement("i"); sw.style.background = itemColor(n);
+        const lab = document.createElement("span"); lab.textContent = n + "  ·  " + counts[n] + " belts";
+        lab.style.cursor = "pointer"; lab.onclick = () => { $("search").value = ""; highlight = ""; flowHighlight = flowHighlight === n ? "" : n; draw(); };
+        el.appendChild(sw); el.appendChild(lab);
+      }
+      const st = { ok: 0, missing: 0, unknown: 0 };
+      for (const m of Object.values(flowData.machines)) if (st[m.status] !== undefined) st[m.status]++;
+      const sum = document.createElement("span"); sum.className = "muted"; sum.style.gridColumn = "1 / -1";
+      sum.textContent = "machines: " + st.ok + " ok, " + st.missing + " missing inputs, " + st.unknown + " unknown (declare feeds)";
+      el.appendChild(sum);
+    }
+  }
+  let flowHighlight = "";
   $("editmode").onchange = (ev) => { editMode = ev.target.checked; document.body.classList.toggle("editing", editMode); refreshGhost(); showDetail(pinned); draw(); };
   $("search").oninput = (ev) => {
     highlight = ev.target.value.trim();
@@ -726,6 +870,13 @@
     if (m.type === "blueprint") { drop.hidden = true; resize(); load(m); }
     if (m.type === "error") { $("file").textContent = "error: " + m.message; }
     if (m.type === "exported") { vscode.postMessage({ type: "status", text: "exported " + m.file }); }
+    if (m.type === "flow") {
+      if (m.error) { $("flowstatus").textContent = "flow failed: " + m.error; return; }
+      flowData = m.data; feeds = (m.data.feeds || []).map((f) => Object.assign({}, f));
+      if (m.feedsFile) $("feedsfile").textContent = m.feedsFile;
+      $("flowstatus").textContent = Object.keys(flowData.lanes).length + " belts resolved";
+      renderItems(); if (!showFlow && feeds.length) { showFlow = true; $("flow").checked = true; } draw();
+    }
   });
   resize();
 })();

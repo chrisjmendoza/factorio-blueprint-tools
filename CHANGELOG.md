@@ -7,6 +7,19 @@ All notable changes to fbp are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- `fbp flow`: lane-level item flow. Computes what can be on the left and
+  right lane of every belt from inserter drops (far lane), curves,
+  sideloads (near lane), underground half-blocking, splitter filters,
+  crafter products, furnace smelting and chest relays, to a fixed point with
+  a worklist. Machines get a status: ok, missing inputs, or unknown.
+- Edge feeds: declare items entering the print from outside in
+  `<name>.feeds.json` (`{"x","y","items","lane"}`), so a furnace column fed
+  iron ore resolves to iron plate all the way down the bus.
+- Viewer "flow" toggle paints each lane with its items and outlines machines
+  green, red or dashed grey by status; hover shows lane contents and what a
+  machine receives and makes. "feed" mode declares an input by picking an
+  item and clicking a belt; right-click a feed marker to remove it. Feeds
+  save beside the blueprint and the flow recomputes.
 - Viewer edit mode: mark entities for removal, rotate, flip underground
   ends, change a machine's recipe from the game data list, and place new
   belts, undergrounds, splitters, inserters, chests, poles, machines and

@@ -41,7 +41,12 @@ function loadGamedata() {
   try {
     const p = path.join(toolsPath(), "data", "gamedata.json");
     const g = JSON.parse(fs.readFileSync(p, "utf8"));
-    gamedataCache = { footprints: g.footprints || {}, recipes: Object.keys(g.recipes || {}).sort() };
+    const items = new Set();
+    for (const r of Object.values(g.recipes || {})) {
+      for (const k of Object.keys(r.ingredients || {})) items.add(k);
+      for (const k of Object.keys(r.results || {})) items.add(k);
+    }
+    gamedataCache = { footprints: g.footprints || {}, recipes: Object.keys(g.recipes || {}).sort(), items: [...items].sort() };
   } catch (e) {
     gamedataCache = { footprints: {}, recipes: [] };
   }
@@ -56,11 +61,37 @@ function send(doc) {
     const bp = firstBlueprint(obj);
     if (!bp) throw new Error("No blueprint in this file");
     const g = loadGamedata();
-    panel.webview.postMessage({ type: "blueprint", bp, footprints: g.footprints, recipes: g.recipes, file: path.basename(doc.fileName) });
+    panel.webview.postMessage({ type: "blueprint", bp, footprints: g.footprints, recipes: g.recipes, items: g.items, file: path.basename(doc.fileName) });
     panel.title = "fbp: " + (bp.label || path.basename(doc.fileName));
+    runFlow(doc.fileName);
   } catch (e) {
     panel.webview.postMessage({ type: "error", message: String(e.message || e) });
   }
+}
+
+// Lane flow is computed by the Python side (single implementation of the belt rules) and
+// pushed to the page. Edge feeds live beside the blueprint as <name>.feeds.json.
+function feedsPath(file) { return file.replace(/\.[^.]+$/, "") + ".feeds.json"; }
+let flowSeq = 0;
+async function runFlow(file) {
+  const seq = ++flowSeq;
+  const tmp = path.join(require("os").tmpdir(), "fbp-flow-" + process.pid + ".json");
+  const res = await runFbpCollect(["flow", file, "--json", tmp]);
+  if (seq !== flowSeq || !panel) return;
+  if (res.code !== 0) { panel.webview.postMessage({ type: "flow", error: res.out.trim().split("\n").pop() }); return; }
+  try {
+    const data = JSON.parse(fs.readFileSync(tmp, "utf8"));
+    panel.webview.postMessage({ type: "flow", data, feedsFile: path.basename(feedsPath(file)) });
+  } catch (e) {
+    panel.webview.postMessage({ type: "flow", error: String(e.message || e) });
+  }
+}
+function saveFeeds(feeds) {
+  if (!current) return;
+  const p = feedsPath(current.fileName);
+  if (feeds.length) fs.writeFileSync(p, JSON.stringify(feeds, null, 1), "utf8");
+  else if (fs.existsSync(p)) fs.unlinkSync(p);
+  runFlow(current.fileName);
 }
 
 function stamp() {
@@ -145,6 +176,7 @@ function openViewer(context) {
       if (m.type === "copy") vscode.env.clipboard.writeText(m.text);
       if (m.type === "status") vscode.window.setStatusBarMessage(m.text, 3000);
       if (m.type === "export") await exportPatch(m.patch);
+      if (m.type === "feeds") saveFeeds(m.feeds || []);
       if (m.type === "open") {
         const picked = await vscode.window.showOpenDialog({
           canSelectMany: false, openLabel: "Open blueprint",
