@@ -73,6 +73,11 @@ All notable changes to fbp are recorded here. The format follows
   underground lane filtering, splitter filters and mall belt conventions.
 
 ### Fixed
+- Flow: a belt running into the side of an underground *exit* now feeds it,
+  with only the lane aligned with the open half passing. Previously exits
+  received from their tunnel only, so lines that end this way showed empty.
+- Flow and lane-mix: long-handed inserters dropped onto the wrong lane
+  because a two-tile offset was compared with a unit vector.
 - Trace output printed belt bounding boxes with x and y interleaved.
 - Fluid-only recipes (refineries, cracking, sulfur, acid) were reported as
   missing inserters. Recipes with no item ingredients or no item results are

@@ -61,7 +61,12 @@ with `python -m fbp ...`. Read `docs/belt-patterns.md` before designing belts.
 - A belt sideloading into an underground tile passes only the lane aligned
   with the open half; the hood half blocks. Entrance: hood on the far half;
   exit: hood on the near half. This is the one-lane filter trick, and the
-  blocked lane backs up unless routed elsewhere.
+  blocked lane backs up unless routed elsewhere. **Exits accept side feeds
+  too** (verified in game by Chris on the robot mall column at (84,147):
+  frames on the west lane enter a west-facing exit, batteries on the east
+  lane stop). Chris's base uses this deliberately; never "fix" it.
+- Long-handed inserters stand two tiles from the belt they drop on. Any
+  side test must normalise the offset or it silently picks the wrong lane.
 - Splitters preserve lanes and split each lane independently. A filter holds
   one item type; filtered items never leak to the other output.
 - Underground pairs need the same tier, axis and opposite type; gap 4/6/8
