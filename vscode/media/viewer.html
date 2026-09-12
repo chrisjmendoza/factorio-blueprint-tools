@@ -8,7 +8,7 @@
 </head>
 <body>
 <div id="standalone" hidden>
-  Standalone page (opened as a file): viewing, editing, flow and feeds all work here; feeds are kept in this browser (use "download feeds.json" to save them).
+  Standalone page (opened as a file): viewing, editing, flow and feeds all work here; feeds are remembered by this browser.
   <b>export</b> needs the VS Code panel: open the blueprint .txt and run <b>fbp: Open blueprint viewer</b> (Ctrl+Shift+P).
 </div>
 <div id="toolbar">
@@ -45,8 +45,7 @@
   <span class="muted">declare an input entering the print:</span>
   <select id="feeditem" title="item"><option value="">(item)</option></select>
   <select id="feedlane" title="lane"><option value="both">both lanes</option><option value="left">left lane</option><option value="right">right lane</option></select>
-  <span class="muted">then click a belt tile · right-click a feed marker to remove it · saved as <span id="feedsfile">&lt;name&gt;.feeds.json</span></span>
-  <button id="feeddownload" hidden title="save the declared feeds as a file to place beside the blueprint">download feeds.json</button>
+  <span class="muted">then click a belt tile · right-click a feed marker to remove it · <span id="feedsfile">remembered by this browser</span></span>
   <span id="flowstatus" class="muted"></span>
 </div>
 <div id="main">

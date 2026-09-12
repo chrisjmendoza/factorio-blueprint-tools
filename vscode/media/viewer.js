@@ -14,7 +14,6 @@
       if (m.type === "feeds") {
         // no Python behind a standalone page: keep the feeds in this browser and offer one explicit download
         try { localStorage.setItem(feedsKey(), JSON.stringify(m.feeds)); } catch (e) { /* storage may be unavailable */ }
-        document.getElementById("feeddownload").hidden = !m.feeds.length;
       }
     },
   };
@@ -248,7 +247,6 @@
     fillItemOptions();
     if (!inVsCode) {
       try { feeds = JSON.parse(localStorage.getItem(feedsKey()) || "[]"); } catch (e) { feeds = []; }
-      $("feeddownload").hidden = !feeds.length;
     }
     computeFlowLocally();
     if (inVsCode) flowWaiting(true);   // the host also saves feeds and re-runs the Python; its answer replaces ours
@@ -947,7 +945,6 @@
     edits.remove.clear(); edits.recipe.clear(); edits.replace.clear(); edits.add.length = 0;
     pinned = null; rebuild(true); showDetail(null);
   };
-  $("feeddownload").onclick = () => download(((bp && bp.label) || "blueprint") + ".feeds.json", JSON.stringify(feeds, null, 1));
   $("nopalette").onclick = () => { $("palette").value = ""; $("ptype").hidden = true; refreshGhost(); draw(); };
   $("copypatch").onclick = () => vscode.postMessage({ type: "copy", text: JSON.stringify(buildPatch(), null, 2) });
   $("export").onclick = () => {
@@ -1014,7 +1011,7 @@
       flowWaiting(false);
       if (m.error) { setFlowStatus("host flow failed: " + m.error + " (showing in-page result)", true); return; }
       flowData = m.data; feeds = (m.data.feeds || []).map((f) => Object.assign({}, f));
-      if (m.feedsFile) $("feedsfile").textContent = m.feedsFile;
+      if (m.feedsFile) $("feedsfile").textContent = "saved as " + m.feedsFile;
       const st = { ok: 0, missing: 0, unknown: 0 };
       for (const mm of Object.values(flowData.machines)) if (st[mm.status] !== undefined) st[mm.status]++;
       setFlowStatus(Object.keys(flowData.lanes).length + " belts resolved · machines " + st.ok + " ok / " + st.missing + " missing / " + st.unknown + " unknown" + (m.ms ? " · " + m.ms + " ms" : ""));
