@@ -194,6 +194,8 @@ function openViewer(context) {
       panel.webview.cspSource + " 'unsafe-inline'; script-src " + panel.webview.cspSource + ';">';
     html = html.replace("<!--CSP-->", csp)
       .replace('href="viewer.css"', 'href="' + mediaUri("viewer.css") + '"')
+      .replace('src="gamedata.js"', 'src="' + mediaUri("gamedata.js") + '"')
+      .replace('src="flow.js"', 'src="' + mediaUri("flow.js") + '"')
       .replace('src="viewer.js"', 'src="' + mediaUri("viewer.js") + '"');
     panel.webview.html = html;
     panel.onDidDispose(() => { panel = null; });

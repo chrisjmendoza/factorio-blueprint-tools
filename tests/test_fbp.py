@@ -368,3 +368,23 @@ def test_flow_curve_keeps_lanes(gd):
     ], "wires": []}
     f = Flow(Grid(bp, gd.footprints()), gd, [{"x": 4, "y": 5, "items": ["pipe"], "lane": "left"}]).run()
     assert f.lanes_of(f.g.byid[3]) == {"left": {"pipe"}, "right": set()}
+
+
+def test_js_flow_matches_python(gd, tmp_path):
+    """vscode/media/flow.js is a port of fbp/flow.py; they must agree on a real print with feeds."""
+    import shutil, subprocess
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available")
+    feeds = [{"x": 109, "y": 84, "items": ["iron-plate", "copper-plate"], "lane": "both"},
+             {"x": 103, "y": 76, "items": ["steel-plate"], "lane": "both"}]
+    fpath = tmp_path / "f.json"; fpath.write_text(json.dumps(feeds))
+    root = os.path.dirname(HERE)
+    js = subprocess.run([node, os.path.join(root, "vscode", "media", "flow_cli.js"), FIXTURE,
+                         os.path.join(root, "data", "gamedata.json"), str(fpath)], capture_output=True, text=True, check=True)
+    a = json.loads(js.stdout)
+    bp = codec.first_blueprint(codec.load(FIXTURE))
+    b = Flow(Grid(bp, gd.footprints()), gd, feeds).run().as_json()
+    assert a["lanes"] == b["lanes"]
+    assert a["machines"] == b["machines"]
+    assert a["chests"] == b["chests"]

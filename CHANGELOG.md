@@ -7,6 +7,12 @@ All notable changes to fbp are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- The viewer computes lane flow in the page (`vscode/media/flow.js`, a port
+  of `fbp/flow.py` checked against it by a test on a real fixture), with game
+  data shipped as `gamedata.js`. Flow, feeds and machine status therefore
+  work in any browser, not only in the VS Code panel; standalone pages keep
+  feeds in local storage. The panel still saves `<name>.feeds.json` and
+  offers export.
 - `fbp flow`: lane-level item flow. Computes what can be on the left and
   right lane of every belt from inserter drops (far lane), curves,
   sideloads (near lane), underground half-blocking, splitter filters,

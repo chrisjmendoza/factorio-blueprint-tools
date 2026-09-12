@@ -14,8 +14,7 @@
       if (m.type === "feeds") {
         // no Python behind a standalone page: keep the feeds in this browser and offer one explicit download
         try { localStorage.setItem(feedsKey(), JSON.stringify(m.feeds)); } catch (e) { /* storage may be unavailable */ }
-        setFlowStatus(m.feeds.length + " feed(s) kept in this browser only; flow needs the VS Code panel. Use \"download feeds.json\" to save them beside the blueprint.", true);
-        document.getElementById("feeddownload").hidden = false;
+        document.getElementById("feeddownload").hidden = !m.feeds.length;
       }
     },
   };
@@ -238,16 +237,21 @@
   }
 
   function load(msg) {
-    bp = msg.bp; footprints = msg.footprints || {}; recipeList = msg.recipes || []; fileName = msg.file || "";
-    itemList = msg.items || itemList; flowData = null; feeds = [];
-    fillItemOptions(); renderItems();
-    if (inVsCode) { setFlowStatus("computing flow…"); flowWaiting(true); }
-    else {
+    const GD = (typeof window !== "undefined" && window.FBP_GAMEDATA) || null;   // shipped with the page for standalone use
+    bp = msg.bp; fileName = msg.file || "";
+    footprints = msg.footprints && Object.keys(msg.footprints).length ? msg.footprints : (GD ? GD.footprints : {});
+    recipeList = msg.recipes && msg.recipes.length ? msg.recipes : (GD ? Object.keys(GD.recipes).sort() : []);
+    if (msg.items && msg.items.length) itemList = msg.items;
+    else if (GD) { const st = new Set(); for (const r of Object.values(GD.recipes)) { Object.keys(r.ingredients || {}).forEach((k) => st.add(k)); Object.keys(r.results || {}).forEach((k) => st.add(k)); } itemList = [...st].sort(); }
+    gamedataForFlow = GD || { recipes: {} };
+    flowData = null; feeds = [];
+    fillItemOptions();
+    if (!inVsCode) {
       try { feeds = JSON.parse(localStorage.getItem(feedsKey()) || "[]"); } catch (e) { feeds = []; }
       $("feeddownload").hidden = !feeds.length;
-      setFlowStatus(feeds.length ? feeds.length + " feed(s) restored from this browser; flow needs the VS Code panel" : "standalone page: flow and feeds need the VS Code panel (fbp: Open blueprint viewer)", true);
-      renderItems();
     }
+    computeFlowLocally();
+    if (inVsCode) flowWaiting(true);   // the host also saves feeds and re-runs the Python; its answer replaces ours
     base = bp.entities || [];
     edits.remove.clear(); edits.recipe.clear(); edits.replace.clear(); edits.add.length = 0; edits.history.length = 0;
     nextTemp = -1; pinned = null; hover = null;
@@ -860,7 +864,23 @@
     if (feedMode && !showFlow) { showFlow = true; $("flow").checked = true; }
     resize();
   };
+  let gamedataForFlow = null;
+  // The flow is computed right here (flow.js, a port of fbp/flow.py) so it works in any browser.
+  // Inside VS Code the host additionally saves the feeds file and answers with the Python result.
+  function computeFlowLocally() {
+    if (!bp || typeof FBPFlow === "undefined") { setFlowStatus("flow.js not loaded", true); return; }
+    const t0 = performance.now();
+    try {
+      flowData = FBPFlow.compute(bp, footprints, gamedataForFlow || { recipes: {} }, feeds);
+    } catch (e) { setFlowStatus("flow failed: " + (e.message || e), true); return; }
+    const st = { ok: 0, missing: 0, unknown: 0 };
+    for (const m of Object.values(flowData.machines)) if (st[m.status] !== undefined) st[m.status]++;
+    setFlowStatus(Object.keys(flowData.lanes).length + " belts resolved · machines " + st.ok + " ok / " + st.missing + " missing / " + st.unknown + " unknown · " + Math.round(performance.now() - t0) + " ms" + (inVsCode ? "" : " (computed in page)"));
+    if (!gamedataForFlow || !Object.keys(gamedataForFlow.recipes).length) setFlowStatus("flow computed without game data (gamedata.js missing): machine products unknown", true);
+    renderItems(); if (!showFlow && feeds.length) { showFlow = true; $("flow").checked = true; } draw();
+  }
   function pushFeeds() {
+    computeFlowLocally();
     if (inVsCode) flowWaiting(true);
     vscode.postMessage({ type: "feeds", feeds });
     renderItems(); draw();
@@ -992,7 +1012,7 @@
     if (m.type === "flowstatus") { setFlowStatus(m.text); }
     if (m.type === "flow") {
       flowWaiting(false);
-      if (m.error) { setFlowStatus("flow failed: " + m.error, true); return; }
+      if (m.error) { setFlowStatus("host flow failed: " + m.error + " (showing in-page result)", true); return; }
       flowData = m.data; feeds = (m.data.feeds || []).map((f) => Object.assign({}, f));
       if (m.feedsFile) $("feedsfile").textContent = m.feedsFile;
       const st = { ok: 0, missing: 0, unknown: 0 };

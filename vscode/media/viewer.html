@@ -8,8 +8,8 @@
 </head>
 <body>
 <div id="standalone" hidden>
-  Standalone page (opened as a file, no extension host): viewing and editing work, but <b>flow</b>, <b>feed</b> and <b>export</b> need the VS Code panel.
-  In VS Code, open the blueprint .txt and run <b>fbp: Open blueprint viewer</b> from the command palette (Ctrl+Shift+P).
+  Standalone page (opened as a file): viewing, editing, flow and feeds all work here; feeds are kept in this browser (use "download feeds.json" to save them).
+  <b>export</b> needs the VS Code panel: open the blueprint .txt and run <b>fbp: Open blueprint viewer</b> (Ctrl+Shift+P).
 </div>
 <div id="toolbar">
   <button id="open" title="open a blueprint string file (.txt)">open…</button>
@@ -68,6 +68,8 @@
 </div>
 <input id="filepick" type="file" accept=".txt,.fbp,.json" hidden>
 <div id="tip" hidden></div>
+<script src="gamedata.js"></script>
+<script src="flow.js"></script>
 <script src="viewer.js"></script>
 </body>
 </html>
