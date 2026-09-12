@@ -362,6 +362,8 @@
       if (scale >= 5) decorate(ghost);
     }
 
+    if (showFlow && flowData && showItemLegend) drawItemLegend();
+
     const sel = pinned || hover;
     if (sel) {
       ctx.strokeStyle = pinned ? "#ffd166" : "#ffffff"; ctx.lineWidth = 2; outline(sel);
@@ -375,6 +377,43 @@
       }
     }
   }
+
+  // On-map legend for item colours: bottom-left, most common items first, one or two columns.
+  // Also outlines the machine status colours. Click the legend header (ctrl+L) to hide it.
+  let showItemLegend = true;
+  function drawItemLegend() {
+    const counts = {};
+    for (const L of Object.values(flowData.lanes)) for (const i of L.left.concat(L.right)) counts[i] = (counts[i] || 0) + 1;
+    const names = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+    if (!names.length) return;
+    const rowH = 16, pad = 8, colW = 190, maxRows = 18;
+    const cols = names.length > maxRows ? 2 : 1, rows = Math.min(maxRows, Math.ceil(names.length / cols));
+    const statusRows = 3, w = pad * 2 + colW * cols, h = pad * 2 + rowH * (rows + statusRows + 1);
+    const x0 = 10, y0 = canvas.height - h - 10;
+    ctx.fillStyle = "rgba(20,20,22,0.88)"; ctx.fillRect(x0, y0, w, h);
+    ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
+    ctx.font = "12px sans-serif"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+    ctx.fillStyle = "#ddd"; ctx.fillText("items on belts  (lane stripe colours)", x0 + pad, y0 + pad + rowH / 2);
+    names.slice(0, rows * cols).forEach((n, i) => {
+      const c = Math.floor(i / rows), r = i % rows;
+      const x = x0 + pad + c * colW, y = y0 + pad + rowH * (r + 1) + rowH / 2;
+      ctx.fillStyle = flowHighlight && flowHighlight !== n ? "rgba(120,120,120,0.5)" : itemColor(n);
+      ctx.fillRect(x, y - 6, 12, 12);
+      ctx.fillStyle = flowHighlight && flowHighlight !== n ? "#888" : "#eee";
+      const label = n.replace(/-/g, " ") + (n === "smelted?" ? "  (furnace, ore not declared)" : "");
+      ctx.fillText(label.length > 28 ? label.slice(0, 27) + "…" : label, x + 18, y);
+    });
+    const sy = y0 + pad + rowH * (rows + 1) + rowH / 2;
+    const status = [["#39d353", "machine: all inputs arrive"], ["#ff3b3b", "machine: an input is missing"], ["#9a9a9a", "machine: depends on undeclared furnace"]];
+    status.forEach(([col, txt], i) => {
+      const y = sy + rowH * i;
+      ctx.strokeStyle = col; ctx.lineWidth = 2; if (i === 2) ctx.setLineDash([3, 3]);
+      ctx.strokeRect(x0 + pad + 1, y - 5, 10, 10); ctx.setLineDash([]);
+      ctx.fillStyle = "#eee"; ctx.fillText(txt, x0 + pad + 18, y);
+    });
+    legendBox = { x0, y0, w, h };
+  }
+  let legendBox = null;
 
   function wrapText(text, cx, cy, maxW, lh) {
     const words = text.split(" "), lines = []; let cur = "";
@@ -647,6 +686,18 @@
     if (ev.button === 2) { dragging = false; painting = false; canvas.classList.remove("dragging"); return; }
     if (painting) { painting = false; lastPaint = null; dragging = false; canvas.classList.remove("dragging"); return; }
     if (dragging && !moved && ev.target === canvas) {
+      // click on the on-map legend: an item row toggles highlight, the header hides the legend
+      if (showFlow && flowData && showItemLegend && legendBox &&
+          ev.offsetX >= legendBox.x0 && ev.offsetX <= legendBox.x0 + legendBox.w && ev.offsetY >= legendBox.y0 && ev.offsetY <= legendBox.y0 + legendBox.h) {
+        const counts = {};
+        for (const L of Object.values(flowData.lanes)) for (const i of L.left.concat(L.right)) counts[i] = (counts[i] || 0) + 1;
+        const names = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+        const rowH = 16, pad = 8, colW = 190, maxRows = 18, cols = names.length > maxRows ? 2 : 1, rows = Math.min(maxRows, Math.ceil(names.length / cols));
+        const r = Math.floor((ev.offsetY - legendBox.y0 - pad) / rowH) - 1, c = Math.floor((ev.offsetX - legendBox.x0 - pad) / colW);
+        if (r < 0) showItemLegend = false;
+        else if (r < rows && names[c * rows + r]) flowHighlight = flowHighlight === names[c * rows + r] ? "" : names[c * rows + r];
+        draw(); dragging = false; canvas.classList.remove("dragging"); return;
+      }
       const under = entityAt(ev.offsetX, ev.offsetY);
       if (feedMode) {
         const [tx, ty] = tileAt(ev.offsetX, ev.offsetY);
@@ -714,6 +765,7 @@
     if (ev.target && (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT")) return;
     if (ev.key === "f" || ev.key === "F") { fit(); draw(); }
     if (ev.key === "Escape") { pinned = null; $("palette").value = ""; refreshGhost(); showDetail(hover); draw(); }
+    if ((ev.key === "l" || ev.key === "L") && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); showItemLegend = !showItemLegend; draw(); }
     if (ev.key === "+" || ev.key === "=") zoomAt(canvas.width / 2, canvas.height / 2, 1.25);
     if (ev.key === "-" || ev.key === "_") zoomAt(canvas.width / 2, canvas.height / 2, 1 / 1.25);
     if (!editMode) return;
@@ -736,7 +788,8 @@
   $("labels").onchange = (ev) => { showLabels = ev.target.checked; draw(); };
   $("gridlines").onchange = (ev) => { showGrid = ev.target.checked; draw(); };
   $("tunnels").onchange = (ev) => { showTunnels = ev.target.checked; draw(); };
-  $("flow").onchange = (ev) => { showFlow = ev.target.checked; draw(); };
+  $("flow").onchange = (ev) => { showFlow = ev.target.checked; showItemLegend = true; draw(); };
+  $("itemlegend").onchange = (ev) => { showItemLegend = ev.target.checked; draw(); };
   $("feedmode").onchange = (ev) => {
     feedMode = ev.target.checked; document.body.classList.toggle("feeding", feedMode);
     if (feedMode && !showFlow) { showFlow = true; $("flow").checked = true; }
@@ -776,7 +829,7 @@
       const counts = {};
       for (const L of Object.values(flowData.lanes)) for (const i of L.left.concat(L.right)) counts[i] = (counts[i] || 0) + 1;
       const names = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
-      head("on belts (" + names.length + " items)");
+      head("item colours (" + names.length + " on belts) · click one to highlight");
       for (const n of names) {
         const sw = document.createElement("i"); sw.style.background = itemColor(n);
         const lab = document.createElement("span"); lab.textContent = n + "  ·  " + counts[n] + " belts";
