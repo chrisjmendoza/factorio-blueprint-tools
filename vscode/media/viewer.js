@@ -570,7 +570,9 @@
     if (painting) { painting = false; lastPaint = null; dragging = false; canvas.classList.remove("dragging"); return; }
     if (dragging && !moved && ev.target === canvas) {
       const under = entityAt(ev.offsetX, ev.offsetY);
-      if (editMode && ghost) {
+      if (editMode && (ev.ctrlKey || ev.metaKey)) {          // ctrl+click: delete, for hosts that intercept right-click
+        if (under) act({ kind: "toggleRemove", r: under });
+      } else if (editMode && ghost) {
         const blockers = ghost.cells.flatMap(([x, y]) => (tiles.get(x + "," + y) || []).filter((q) => !q.removed));
         const onlyOneAdded = blockers.length > 0 && blockers.every((q) => q === blockers[0]) && blockers[0].added;
         if (!blockers.length) { act({ kind: "place", entity: ghost.e }); afterPlace(); }
@@ -627,7 +629,11 @@
     if (ev.key === "-" || ev.key === "_") zoomAt(canvas.width / 2, canvas.height / 2, 1 / 1.25);
     if (!editMode) return;
     if ((ev.key === "z" || ev.key === "Z") && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); undo(); }
-    if (ev.key === "Delete" || ev.key === "Backspace") { if (pinned) act({ kind: "toggleRemove", r: pinned }); }
+    // Delete / X: the pinned entity, or whatever is under the cursor. Works even if the host eats right-click.
+    if (ev.key === "Delete" || ev.key === "Backspace" || ev.key === "x" || ev.key === "X") {
+      const target = pinned || hover;
+      if (target) { ev.preventDefault(); act({ kind: "toggleRemove", r: target }); }
+    }
     if (ev.key === "r" || ev.key === "R") {
       if (pinned) act({ kind: "rotate", r: pinned });
       else { const d = $("pdir"); d.value = String((parseInt(d.value, 10) + 4) % 16); refreshGhost(); draw(); }
