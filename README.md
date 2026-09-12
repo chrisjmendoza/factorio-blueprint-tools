@@ -126,6 +126,20 @@ footprints from `data/gamedata.json`, and redraws whenever the file is saved.
   labels and a tile grid.
 - **fbp: Run supply check on this file** and **fbp: Trace machines by
   recipe** run the Python tool and print to an "fbp" output channel.
+- **Edit mode** (checkbox in the toolbar). Click an entity then `Delete` to
+  mark it removed, `R` to rotate, `T` to flip an underground end, or pick a
+  recipe in the side panel. Choose a palette item and click a tile to place
+  it; the ghost turns red on an occupied tile. `Ctrl+Z` undoes. Nothing in
+  the page changes the blueprint: edits are a patch in the `fbp patch`
+  format, shown by **copy patch**. **export…** saves that patch under
+  `patches/` beside the source, runs `fbp patch` into `<name> - edit N.txt`,
+  then `fbp diff` and `fbp check`, and reloads the viewer on the result. The
+  source file is never overwritten.
+- Colours: belts by tier (yellow, red, blue, green turbo) with undergrounds
+  darker and splitters lighter; inserters by type (yellow, red long-handed,
+  blue fast, green bulk, white stack) drawn as arrows in the direction the
+  item moves. Undergrounds draw a dashed tunnel to their partner; unpaired
+  ends are outlined red; hovering one shades every tile within its reach.
 
 Install for development by linking the folder into your extensions directory
 (no build step, plain JavaScript):

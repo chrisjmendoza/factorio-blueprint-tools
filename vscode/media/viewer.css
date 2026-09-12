@@ -6,7 +6,14 @@ button:hover { filter: brightness(1.2); }
 #toolbar label { -webkit-user-select: none; user-select: none; }
 #coords { margin-left: auto; font-family: var(--vscode-editor-font-family, monospace); }
 .muted { opacity: 0.65; }
+#edittools { display: none; gap: 8px; align-items: center; padding: 3px 8px; border-bottom: 1px solid var(--vscode-panel-border, #444); height: 24px; background: rgba(255,159,28,0.08); }
+body.editing #edittools { display: flex; }
+#edittools select { background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #ddd); border: 1px solid var(--vscode-input-border, transparent); max-width: 220px; }
+#edittools .count { margin-left: auto; color: #ff9f1c; font-weight: 600; }
+button.primary { background: var(--vscode-button-background, #0e639c); color: var(--vscode-button-foreground, #fff); }
+.edittoggle { color: #ff9f1c; }
 #main { display: flex; height: calc(100% - 35px); }
+body.editing #main { height: calc(100% - 66px); }
 #map { flex: 1; display: block; cursor: grab; background: #1b1b1d; }
 #map.dragging { cursor: grabbing; }
 #side { flex: 0 0 280px; overflow: auto; border-left: 1px solid var(--vscode-panel-border, #444); padding: 8px; box-sizing: border-box; }

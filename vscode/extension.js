@@ -35,13 +35,17 @@ function firstBlueprint(obj) {
   return null;
 }
 
-function loadFootprints() {
+let gamedataCache = null;
+function loadGamedata() {
+  if (gamedataCache) return gamedataCache;
   try {
     const p = path.join(toolsPath(), "data", "gamedata.json");
-    return JSON.parse(fs.readFileSync(p, "utf8")).footprints || {};
+    const g = JSON.parse(fs.readFileSync(p, "utf8"));
+    gamedataCache = { footprints: g.footprints || {}, recipes: Object.keys(g.recipes || {}).sort() };
   } catch (e) {
-    return {};
+    gamedataCache = { footprints: {}, recipes: [] };
   }
+  return gamedataCache;
 }
 
 function send(doc) {
@@ -51,11 +55,70 @@ function send(doc) {
     const obj = decodeText(doc.getText());
     const bp = firstBlueprint(obj);
     if (!bp) throw new Error("No blueprint in this file");
-    panel.webview.postMessage({ type: "blueprint", bp, footprints: loadFootprints(), file: path.basename(doc.fileName) });
+    const g = loadGamedata();
+    panel.webview.postMessage({ type: "blueprint", bp, footprints: g.footprints, recipes: g.recipes, file: path.basename(doc.fileName) });
     panel.title = "fbp: " + (bp.label || path.basename(doc.fileName));
   } catch (e) {
     panel.webview.postMessage({ type: "error", message: String(e.message || e) });
   }
+}
+
+function stamp() {
+  const d = new Date(), p = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "-" + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+}
+
+// Next free "<name> - edit N.txt" beside the source. Never overwrites the source.
+function nextOutputPath(src) {
+  const dir = path.dirname(src), ext = path.extname(src);
+  let stem = path.basename(src, ext).replace(/ - edit( \d+)?$/, "");
+  for (let n = 1; ; n++) {
+    const candidate = path.join(dir, stem + " - edit" + (n === 1 ? "" : " " + n) + ext);
+    if (!fs.existsSync(candidate)) return candidate;
+  }
+}
+
+function runFbpCollect(args) {
+  const py = vscode.workspace.getConfiguration("fbp").get("python") || "python";
+  return new Promise((resolve) => {
+    const child = spawn(py, ["-m", "fbp", ...args], { cwd: toolsPath() });
+    let out = "";
+    child.stdout.on("data", (d) => { out += d.toString(); });
+    child.stderr.on("data", (d) => { out += d.toString(); });
+    child.on("close", (code) => resolve({ code, out }));
+  });
+}
+
+// Export: save the patch beside the source, apply it with fbp patch, diff old vs new, load the result.
+async function exportPatch(patch) {
+  if (!current) { vscode.window.showWarningMessage("fbp: no source file for this blueprint."); return; }
+  const src = current.fileName;
+  const patchDir = path.join(path.dirname(src), "patches");
+  fs.mkdirSync(patchDir, { recursive: true });
+  const patchPath = path.join(patchDir, path.basename(src, path.extname(src)).replace(/ - edit( \d+)?$/, "") + "-" + stamp() + ".json");
+  fs.writeFileSync(patchPath, JSON.stringify(patch, null, 2), "utf8");
+  const outPath = nextOutputPath(src);
+  if (!output) output = vscode.window.createOutputChannel("fbp");
+  output.show(true);
+  output.appendLine("=== export: " + path.basename(src) + " -> " + path.basename(outPath));
+  output.appendLine("patch saved: " + patchPath);
+  const applied = await runFbpCollect(["patch", src, patchPath, "-o", outPath]);
+  output.append(applied.out);
+  if (applied.code !== 0) {
+    vscode.window.showErrorMessage("fbp patch refused the edit; see the fbp output channel.");
+    return;
+  }
+  output.appendLine("--- fbp diff");
+  const diff = await runFbpCollect(["diff", src, outPath]);
+  output.append(diff.out);
+  output.appendLine("--- fbp check");
+  const chk = await runFbpCollect(["check", outPath]);
+  output.append(chk.out.split("\n").filter((l) => !l.includes("only unknown sources")).join("\n"));
+  const doc = await vscode.workspace.openTextDocument(outPath);
+  await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.One, preserveFocus: true });
+  send(doc);
+  const msg = "fbp: wrote " + path.basename(outPath) + (diff.code === 0 ? " (diff clean)" : " (diff reports NEW findings, see output)");
+  if (diff.code === 0) vscode.window.showInformationMessage(msg); else vscode.window.showWarningMessage(msg);
 }
 
 let current = null;
@@ -81,6 +144,7 @@ function openViewer(context) {
     panel.webview.onDidReceiveMessage(async (m) => {
       if (m.type === "copy") vscode.env.clipboard.writeText(m.text);
       if (m.type === "status") vscode.window.setStatusBarMessage(m.text, 3000);
+      if (m.type === "export") await exportPatch(m.patch);
       if (m.type === "open") {
         const picked = await vscode.window.showOpenDialog({
           canSelectMany: false, openLabel: "Open blueprint",

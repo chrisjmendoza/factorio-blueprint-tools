@@ -7,6 +7,19 @@ All notable changes to fbp are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Viewer edit mode: mark entities for removal, rotate, flip underground
+  ends, change a machine's recipe from the game data list, and place new
+  belts, undergrounds, splitters, inserters, chests, poles, machines and
+  pipes from a palette with a placement ghost and occupancy warning. Edits
+  accumulate as a patch in the `fbp patch` format; undo, clear and copy.
+- Export from the viewer writes the patch beside the source under
+  `patches/`, runs `fbp patch` into a new `<name> - edit N.txt` (never
+  overwriting the source), then `fbp diff` and `fbp check`, shows the result
+  in the output channel and reloads the viewer on the new file. Standalone in
+  a browser, export downloads the patch JSON instead.
+- Inserters are coloured by type as in game (yellow, red long-handed, blue
+  fast, green bulk, white stack) and drawn as an arrow in the direction the
+  item travels, with a second chevron on long-handed inserters.
 - Viewer: belts, undergrounds and splitters are coloured by tier (yellow,
   red, blue, green for turbo), undergrounds draw a dashed tunnel line to
   their partner, unpaired ends are outlined red, and hovering an underground

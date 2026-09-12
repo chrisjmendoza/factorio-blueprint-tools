@@ -16,7 +16,22 @@
   <label><input id="gridlines" type="checkbox"> grid</label>
   <label><input id="tunnels" type="checkbox" checked> tunnels</label>
   <button id="fit" title="fit blueprint to view (F)">fit</button>
+  <label class="edittoggle"><input id="editmode" type="checkbox"> edit</label>
   <span id="coords" class="muted"></span>
+</div>
+<div id="edittools">
+  <span class="muted">place:</span>
+  <select id="palette" title="entity to place"><option value="">(select an entity)</option></select>
+  <select id="pdir" title="direction (R rotates)">
+    <option value="0">north</option><option value="4">east</option><option value="8">south</option><option value="12">west</option>
+  </select>
+  <select id="ptype" hidden title="underground end"><option value="input">entrance</option><option value="output">exit</option></select>
+  <span class="muted">then click a tile · Delete removes · R rotates · T flips underground · Ctrl+Z undo</span>
+  <span id="patchcount" class="count"></span>
+  <button id="undo" title="Ctrl+Z">undo</button>
+  <button id="clear">clear</button>
+  <button id="copypatch" title="copy the patch JSON">copy patch</button>
+  <button id="export" class="primary" title="write the patch, run fbp patch and fbp diff">export…</button>
 </div>
 <div id="main">
   <canvas id="map"></canvas>
