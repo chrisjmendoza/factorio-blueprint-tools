@@ -629,21 +629,32 @@
       // Recipe picker: type to filter the 600+ recipes. Changing it is an edit, so edit mode switches on.
       const wrap = document.createElement("div"); wrap.className = "recipepick";
       const lab = document.createElement("span"); lab.textContent = "recipe: "; wrap.appendChild(lab);
-      const inp = document.createElement("input"); inp.setAttribute("list", "recipelist"); inp.placeholder = e.recipe || "type a recipe…";
-      inp.value = ""; inp.spellcheck = false; inp.title = "type to search, pick one, Enter applies";
-      const apply = () => {
-        const v = inp.value.trim(); if (!v || v === e.recipe) return;
-        if (recipeList.length && !recipeList.includes(v)) { inp.style.borderColor = "#ff3b3b"; inp.title = "not a recipe name"; return; }
+      // A plain filtered list under the box; the browser's native datalist popup misplaces itself in this panel.
+      const inp = document.createElement("input"); inp.placeholder = e.recipe || "type a recipe…";
+      inp.value = ""; inp.spellcheck = false; inp.autocomplete = "off"; inp.title = "type to filter; click a match or press Enter for the first one";
+      const list = document.createElement("div"); list.className = "recipe-options"; list.hidden = true;
+      const apply = (v) => {
+        v = (v || "").trim(); if (!v || v === e.recipe) return;
+        if (recipeList.length && !recipeList.includes(v)) { toast("not a recipe: " + v); return; }
         if (!editMode) { $("editmode").checked = true; $("editmode").onchange({ target: $("editmode") }); }
         act({ kind: "recipe", r, recipe: v });
       };
-      inp.onchange = apply; inp.onkeydown = (ev) => { if (ev.key === "Enter") apply(); ev.stopPropagation(); };
-      wrap.appendChild(inp); detail.appendChild(wrap);
-      if (!$("recipelist")) {
-        const dl = document.createElement("datalist"); dl.id = "recipelist";
-        for (const name of recipeList) { const o = document.createElement("option"); o.value = name; dl.appendChild(o); }
-        document.body.appendChild(dl);
-      }
+      let matches = [];
+      const refresh = () => {
+        const q = inp.value.trim().toLowerCase();
+        matches = q ? recipeList.filter((n) => n.includes(q)).sort((x, y) => (x.startsWith(q) ? 0 : 1) - (y.startsWith(q) ? 0 : 1) || x.localeCompare(y)).slice(0, 12) : [];
+        list.innerHTML = ""; list.hidden = !matches.length;
+        for (const name of matches) {
+          const o = document.createElement("div"); o.className = "recipe-option"; o.textContent = name;
+          o.onmousedown = (ev) => { ev.preventDefault(); apply(name); };
+          list.appendChild(o);
+        }
+      };
+      inp.oninput = refresh;
+      inp.onkeydown = (ev) => { if (ev.key === "Enter") apply(matches[0] || inp.value); if (ev.key === "Escape") { inp.value = ""; refresh(); } ev.stopPropagation(); };
+      inp.onblur = () => setTimeout(() => { list.hidden = true; }, 150);
+      inp.onfocus = refresh;
+      wrap.appendChild(inp); detail.appendChild(wrap); detail.appendChild(list);
     }
     if (editMode) {
       detail.appendChild(document.createElement("br"));
