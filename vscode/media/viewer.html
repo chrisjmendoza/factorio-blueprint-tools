@@ -26,16 +26,19 @@
     <option value="0">north</option><option value="4">east</option><option value="8">south</option><option value="12">west</option>
   </select>
   <select id="ptype" hidden title="underground end"><option value="input">entrance</option><option value="output">exit</option></select>
-  <span class="muted">then click a tile · Delete removes · R rotates · T flips underground · Ctrl+Z undo</span>
+  <button id="nopalette" title="stop placing (Esc)">done</button>
+  <span class="muted">click places · click a placed item to replace it · shift+drag paints a run · right-click deletes · R rotates · T flips underground</span>
   <span id="patchcount" class="count"></span>
-  <button id="undo" title="Ctrl+Z">undo</button>
-  <button id="clear">clear</button>
+  <button id="undo" title="undo last edit (Ctrl+Z)">undo</button>
+  <button id="clear" title="revert every edit (undoable)">clear all</button>
   <button id="copypatch" title="copy the patch JSON">copy patch</button>
   <button id="export" class="primary" title="write the patch, run fbp patch and fbp diff">export…</button>
 </div>
 <div id="main">
   <canvas id="map"></canvas>
   <div id="side">
+    <h4 id="changeshead" hidden>changes (× reverts one)</h4>
+    <div id="changes"></div>
     <div id="legend"></div>
     <div id="detail"><div class="muted">Hover for details, click to pin. Drag to pan, wheel to zoom.</div></div>
   </div>

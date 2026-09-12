@@ -12,6 +12,11 @@ All notable changes to fbp are recorded here. The format follows
   belts, undergrounds, splitters, inserters, chests, poles, machines and
   pipes from a palette with a placement ghost and occupancy warning. Edits
   accumulate as a patch in the `fbp patch` format; undo, clear and copy.
+- Editing ergonomics: right-click removes or restores (as in the game),
+  clicking a placed item with a palette selection replaces it, shift-drag
+  paints a run of belts or inserters, placing a machine clears the palette,
+  and a change list in the side panel reverts any single edit. Undo is one
+  step at a time and "clear all" is itself undoable.
 - Export from the viewer writes the patch beside the source under
   `patches/`, runs `fbp patch` into a new `<name> - edit N.txt` (never
   overwriting the source), then `fbp diff` and `fbp check`, shows the result

@@ -28,3 +28,10 @@ body.editing #main { height: calc(100% - 66px); }
 #drop.over { outline: 3px dashed #c9a227; outline-offset: -12px; }
 #drop h2 { font-weight: 500; margin-bottom: 6px; }
 #drop code { background: #333; padding: 1px 4px; border-radius: 2px; }
+#changeshead { margin: 0 0 4px; font-size: 12px; color: #ff9f1c; font-weight: 600; }
+#changeshead[hidden] { display: none; }
+#changes { margin-bottom: 10px; }
+#changes .change { display: flex; gap: 6px; align-items: center; padding: 1px 0; font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; }
+#changes .change button { padding: 0 6px; line-height: 16px; color: #ff6b6b; }
+#changes .change span { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#changes .change span:hover { text-decoration: underline; }

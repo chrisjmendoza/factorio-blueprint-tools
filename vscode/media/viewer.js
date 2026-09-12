@@ -158,8 +158,41 @@
     const n = edits.remove.size + edits.recipe.size + edits.replace.size + edits.add.length;
     $("patchcount").textContent = n ? n + " edit" + (n === 1 ? "" : "s") : "";
     $("file").textContent = (bp.label || fileName || "") + "  ·  " + base.length + " entities";
+    renderChanges();
     if (!keepView) fit();
     draw();
+  }
+
+  // The change list: one row per edit with its own revert button, so a single mistake can be
+  // taken back without unwinding everything after it.
+  function renderChanges() {
+    const el = $("changes"); el.innerHTML = "";
+    const byId = new Map(base.map((e) => [e.entity_number, e]));
+    const row = (text, revert, focus) => {
+      const div = document.createElement("div"); div.className = "change";
+      const b = document.createElement("button"); b.textContent = "×"; b.title = "revert this edit"; b.onclick = revert;
+      const span = document.createElement("span"); span.textContent = text; span.title = "click to select";
+      span.onclick = focus;
+      div.appendChild(b); div.appendChild(span); el.appendChild(div);
+    };
+    const pin = (pred) => () => { pinned = ents.find(pred) || null; showDetail(pinned); draw(); };
+    for (const id of [...edits.remove].sort((a, b) => a - b)) {
+      const e = byId.get(id);
+      row("remove " + (e ? e.name : "#" + id) + " #" + id, () => act({ kind: "revert", what: "remove", id }), pin((r) => r.baseId === id));
+    }
+    for (const [id, rec] of edits.recipe) {
+      const e = byId.get(id);
+      row("recipe #" + id + " " + (e && e.recipe ? e.recipe + " → " : "") + rec, () => act({ kind: "revert", what: "recipe", id }), pin((r) => r.baseId === id));
+    }
+    for (const [id, rep] of edits.replace) {
+      row((rep.type && byId.get(id) && rep.type !== byId.get(id).type ? "flip " : "rotate ") + rep.name + " #" + id + " → " + (DIRNAME[(rep.direction || 0) & 12] || rep.direction) + (rep.recipe && byId.get(id) && rep.recipe !== byId.get(id).recipe ? ", " + rep.recipe : ""),
+          () => act({ kind: "revert", what: "replace", id }), pin((r) => r.baseId === id));
+    }
+    edits.add.forEach((a, index) => {
+      row("add " + a.name + (a.recipe ? " [" + a.recipe + "]" : "") + " @ (" + a.position.x + ", " + a.position.y + ")" + (a.direction !== undefined ? " " + DIRNAME[a.direction & 12] : ""),
+          () => act({ kind: "revert", what: "add", index }), pin((r) => r.e === a));
+    });
+    $("changeshead").hidden = !el.childElementCount;
   }
 
   function load(msg) {
@@ -388,7 +421,7 @@
     if (!r) {
       const d = document.createElement("div"); d.className = "muted";
       d.textContent = editMode
-        ? "Edit mode. Click an entity, then Delete removes, R rotates, T flips an underground. Pick a palette item and click a tile to place. Ctrl+Z undoes."
+        ? "Edit mode. Right-click removes (or restores). Click an entity, then R rotates, T flips an underground, Delete removes. Pick a palette item and click a tile to place; shift+drag paints a run. Ctrl+Z undoes one step; × in the change list reverts one edit."
         : "Hover for details, click to pin. Drag to pan, wheel to zoom, F to fit.";
       detail.appendChild(d); return;
     }
@@ -418,28 +451,42 @@
   function clone(e) { return JSON.parse(JSON.stringify(e)); }
   function currentOf(r) { return r.baseId !== null && edits.replace.has(r.baseId) ? edits.replace.get(r.baseId) : r.e; }
 
+  // Every action snapshots the edit state first (deep copies, so later in-place changes cannot leak
+  // into history), applies one change, then rebuilds the view. Added entities are replaced by fresh
+  // objects rather than mutated, so an undo snapshot never shares an object with live state.
+  function snapshotEdits() {
+    return { remove: new Set(edits.remove), recipe: new Map(edits.recipe),
+             replace: new Map([...edits.replace].map(([k, v]) => [k, clone(v)])), add: edits.add.map(clone) };
+  }
+  function swapAdded(oldE, newE) { const i = edits.add.indexOf(oldE); if (i >= 0) edits.add[i] = newE; return newE; }
   function act(a) {
-    const snapshot = { remove: new Set(edits.remove), recipe: new Map(edits.recipe), replace: new Map(edits.replace), add: edits.add.slice() };
-    edits.history.push(snapshot);
+    edits.history.push(snapshotEdits());
+    let follow = null;   // entity object to keep pinned after rebuild
     if (a.kind === "toggleRemove") {
       if (a.r.added) edits.add.splice(edits.add.indexOf(a.r.e), 1);
-      else if (edits.remove.has(a.r.baseId)) edits.remove.delete(a.r.baseId);
-      else { edits.remove.add(a.r.baseId); edits.recipe.delete(a.r.baseId); edits.replace.delete(a.r.baseId); }
+      else if (edits.remove.has(a.r.baseId)) { edits.remove.delete(a.r.baseId); follow = a.r.baseId; }
+      else { edits.remove.add(a.r.baseId); edits.recipe.delete(a.r.baseId); edits.replace.delete(a.r.baseId); follow = a.r.baseId; }
     } else if (a.kind === "rotate" || a.kind === "flip") {
-      const target = a.r.added ? a.r.e : clone(currentOf(a.r));
+      const target = clone(currentOf(a.r));
       if (a.kind === "rotate") target.direction = ((target.direction || 0) + 4) % 16;
       else target.type = target.type === "input" ? "output" : "input";
-      if (!a.r.added) { edits.replace.set(a.r.baseId, target); edits.remove.delete(a.r.baseId); }
+      if (a.r.added) follow = swapAdded(a.r.e, target);
+      else { edits.replace.set(a.r.baseId, target); edits.remove.delete(a.r.baseId); follow = a.r.baseId; }
     } else if (a.kind === "recipe") {
-      if (a.r.added) { a.r.e.recipe = a.recipe; a.r.e.recipe_quality = "normal"; }
-      else if (edits.replace.has(a.r.baseId)) { edits.replace.get(a.r.baseId).recipe = a.recipe; }
-      else edits.recipe.set(a.r.baseId, a.recipe);
+      if (a.r.added) { const t = clone(a.r.e); t.recipe = a.recipe; t.recipe_quality = "normal"; follow = swapAdded(a.r.e, t); }
+      else if (edits.replace.has(a.r.baseId)) { edits.replace.get(a.r.baseId).recipe = a.recipe; follow = a.r.baseId; }
+      else { edits.recipe.set(a.r.baseId, a.recipe); follow = a.r.baseId; }
     } else if (a.kind === "place") {
-      edits.add.push(a.entity);
+      if (a.replacing) edits.add.splice(edits.add.indexOf(a.replacing.e), 1);
+      edits.add.push(a.entity); follow = a.entity;
+    } else if (a.kind === "revert") {          // undo one specific edit from the change list
+      if (a.what === "remove") edits.remove.delete(a.id);
+      if (a.what === "recipe") edits.recipe.delete(a.id);
+      if (a.what === "replace") edits.replace.delete(a.id);
+      if (a.what === "add") edits.add.splice(a.index, 1);
     }
-    const keepId = pinned ? pinned.baseId : null, keepAdded = pinned && pinned.added ? pinned.e : null;
     rebuild(true);
-    pinned = ents.find((r) => (keepId !== null && r.baseId === keepId) || (keepAdded && r.e === keepAdded)) || null;
+    pinned = follow === null ? null : ents.find((r) => (typeof follow === "number" ? r.baseId === follow : r.e === follow)) || null;
     showDetail(pinned);
   }
   function undo() {
@@ -486,21 +533,67 @@
 
   // ---------------------------------------------------------------- interaction
   let dragging = false, lastX = 0, lastY = 0, moved = false;
-  canvas.addEventListener("mousedown", (ev) => { dragging = true; moved = false; lastX = ev.clientX; lastY = ev.clientY; canvas.classList.add("dragging"); });
+  canvas.addEventListener("mousedown", (ev) => {
+    if (ev.button === 2) return;
+    if (editMode && ev.shiftKey && ghost && ghost.cells.length === 1) {   // start painting a run
+      painting = true; const t = tileAt(ev.offsetX, ev.offsetY); lastPaint = t.join(",");
+      tryPlaceAt(t[0], t[1], false); refreshGhost(); draw(); return;
+    }
+    dragging = true; moved = false; lastX = ev.clientX; lastY = ev.clientY; canvas.classList.add("dragging");
+  });
+  // Mouse semantics in edit mode (right-click removes, as in the game):
+  //   right-click         delete what is under the cursor (added: gone; original: marked removed / restored)
+  //   palette + empty     place the ghost
+  //   palette + added     replace that added entity with the ghost (re-place a wrong inserter in one click)
+  //   palette + original  select it (never place on top of the print)
+  //   shift + drag        paint the 1x1 palette item along the drag (belts, inserters, poles)
+  //   no palette          select
+  // Placing a multi-tile entity clears the palette; 1x1 items stay selected for repeated placement.
+  let painting = false, lastPaint = null;
+  canvas.addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    if (!editMode) return;
+    const under = entityAt(ev.offsetX, ev.offsetY);
+    if (under) act({ kind: "toggleRemove", r: under });
+  });
+  function tryPlaceAt(tx, ty, replaceAdded) {
+    const e = paletteEntity(tx, ty); if (!e) return false;
+    const g = { e, cells: cellsOf(e), kind: kindOf(e.name) };
+    const blockers = g.cells.flatMap(([x, y]) => (tiles.get(x + "," + y) || []).filter((q) => !q.removed));
+    if (!blockers.length) { act({ kind: "place", entity: e }); return true; }
+    const onlyOneAdded = blockers.every((q) => q === blockers[0]) && blockers[0].added;
+    if (replaceAdded && onlyOneAdded) { act({ kind: "place", entity: e, replacing: blockers[0] }); return true; }
+    return false;
+  }
   window.addEventListener("mouseup", (ev) => {
+    if (ev.button === 2) { dragging = false; painting = false; canvas.classList.remove("dragging"); return; }
+    if (painting) { painting = false; lastPaint = null; dragging = false; canvas.classList.remove("dragging"); return; }
     if (dragging && !moved && ev.target === canvas) {
+      const under = entityAt(ev.offsetX, ev.offsetY);
       if (editMode && ghost) {
-        const occupied = ghost.cells.some(([x, y]) => (tiles.get(x + "," + y) || []).some((q) => !q.removed));
-        if (occupied) vscode.postMessage({ type: "status", text: "tile occupied: remove what is there first" });
-        else { act({ kind: "place", entity: ghost.e }); refreshGhost(); }
+        const blockers = ghost.cells.flatMap(([x, y]) => (tiles.get(x + "," + y) || []).filter((q) => !q.removed));
+        const onlyOneAdded = blockers.length > 0 && blockers.every((q) => q === blockers[0]) && blockers[0].added;
+        if (!blockers.length) { act({ kind: "place", entity: ghost.e }); afterPlace(); }
+        else if (onlyOneAdded) { act({ kind: "place", entity: ghost.e, replacing: blockers[0] }); afterPlace(); }
+        else if (under && !under.added) { pinned = under; showDetail(pinned); draw(); }
+        else vscode.postMessage({ type: "status", text: "tile occupied: shift+click to remove what is there" });
       } else {
-        pinned = entityAt(ev.offsetX, ev.offsetY); showDetail(pinned); draw();
+        pinned = under; showDetail(pinned); draw();
       }
     }
     dragging = false; canvas.classList.remove("dragging");
   });
+  function afterPlace() {
+    if (ghost && ghost.cells.length > 1) { $("palette").value = ""; $("ptype").hidden = true; }
+    refreshGhost(); draw();
+  }
   canvas.addEventListener("mousemove", (ev) => {
     const r = canvas.getBoundingClientRect(); const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    if (painting) {
+      const t = tileAt(mx, my); hoverTile = t;
+      if (t.join(",") !== lastPaint) { lastPaint = t.join(","); tryPlaceAt(t[0], t[1], false); }
+      refreshGhost(); draw(); return;
+    }
     if (dragging) {
       const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
       if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
@@ -525,7 +618,7 @@
     const r = canvas.getBoundingClientRect();
     zoomAt(ev.clientX - r.left, ev.clientY - r.top, ev.deltaY < 0 ? 1.15 : 1 / 1.15);
   }, { passive: false });
-  canvas.addEventListener("dblclick", (ev) => { const r = canvas.getBoundingClientRect(); zoomAt(ev.clientX - r.left, ev.clientY - r.top, 2); });
+  canvas.addEventListener("dblclick", (ev) => { if (editMode) return; const r = canvas.getBoundingClientRect(); zoomAt(ev.clientX - r.left, ev.clientY - r.top, 2); });
   window.addEventListener("keydown", (ev) => {
     if (ev.target && (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT")) return;
     if (ev.key === "f" || ev.key === "F") { fit(); draw(); }
@@ -559,7 +652,14 @@
   $("pdir").onchange = () => { refreshGhost(); draw(); };
   $("ptype").onchange = () => { refreshGhost(); draw(); };
   $("undo").onclick = undo;
-  $("clear").onclick = () => { if (edits.history.length) { edits.history.push(null); } edits.remove.clear(); edits.recipe.clear(); edits.replace.clear(); edits.add.length = 0; edits.history.length = 0; pinned = null; rebuild(true); showDetail(null); };
+  $("clear").onclick = () => {
+    const n = edits.remove.size + edits.recipe.size + edits.replace.size + edits.add.length;
+    if (!n) return;
+    edits.history.push(snapshotEdits());   // clear all is itself undoable
+    edits.remove.clear(); edits.recipe.clear(); edits.replace.clear(); edits.add.length = 0;
+    pinned = null; rebuild(true); showDetail(null);
+  };
+  $("nopalette").onclick = () => { $("palette").value = ""; $("ptype").hidden = true; refreshGhost(); draw(); };
   $("copypatch").onclick = () => vscode.postMessage({ type: "copy", text: JSON.stringify(buildPatch(), null, 2) });
   $("export").onclick = () => {
     const p = buildPatch();
