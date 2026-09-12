@@ -685,7 +685,8 @@
     }
     rebuild(true);
     pinned = follow === null ? null : ents.find((r) => (typeof follow === "number" ? r.baseId === follow : r.e === follow)) || null;
-    if (flowData) computeFlowLocally();
+    if (a.kind === "recipe" && !showFlow) { showFlow = true; $("flow").checked = true; }   // a recipe change is a question for the flow
+    if (flowData || showFlow) computeFlowLocally();
     showDetail(pinned);
   }
   function undo() {
