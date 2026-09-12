@@ -47,3 +47,10 @@ body.editing.feeding #main { height: calc(100% - 97px); }
 #items h4 { grid-column: 1 / -1; margin: 0; font-size: 12px; color: #3fa9a3; font-weight: 600; }
 #items .feed { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; }
 #items .feed button { padding: 0 6px; line-height: 16px; color: #ff6b6b; }
+#standalone { background: #5a3d12; color: #ffe0a8; padding: 5px 10px; font-size: 12px; border-bottom: 1px solid #8a5f1e; }
+#standalone[hidden] { display: none; }
+#standalone b { color: #fff; }
+body.standalone #main { height: calc(100% - 35px - 29px); }
+body.standalone.editing #main { height: calc(100% - 66px - 29px); }
+body.standalone.feeding #main { height: calc(100% - 66px - 29px); }
+body.standalone.editing.feeding #main { height: calc(100% - 97px - 29px); }

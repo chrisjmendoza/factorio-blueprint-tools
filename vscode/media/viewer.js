@@ -36,6 +36,7 @@
     }, 15000);
   }
   const $ = (id) => document.getElementById(id);
+  if (!inVsCode) { $("standalone").hidden = false; document.body.classList.add("standalone"); }
   const canvas = $("map"), ctx = canvas.getContext("2d");
   const tip = $("tip"), detail = $("detail"), coords = $("coords");
 
