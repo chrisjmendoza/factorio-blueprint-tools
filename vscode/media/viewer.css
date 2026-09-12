@@ -62,3 +62,4 @@ body.standalone.editing.feeding #main { height: calc(100% - 97px - 29px); }
 .recipe-options[hidden] { display: none; }
 .recipe-option { padding: 3px 8px; cursor: pointer; font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; }
 .recipe-option:hover { background: rgba(255,159,28,0.25); }
+#map:focus { outline: none; }

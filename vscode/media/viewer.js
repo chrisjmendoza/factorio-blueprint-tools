@@ -886,7 +886,10 @@
   }, { passive: false });
   canvas.addEventListener("dblclick", (ev) => { if (editMode) return; const r = canvas.getBoundingClientRect(); zoomAt(ev.clientX - r.left, ev.clientY - r.top, 2); });
   window.addEventListener("keydown", (ev) => {
-    if (ev.target && (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT")) return;
+    // A palette dropdown that still has focus must not swallow the edit keys.
+    if (ev.target && ev.target.tagName === "SELECT" && ev.target.closest("#edittools, #feedtools") && !["ArrowUp", "ArrowDown", "Enter", " ", "Tab"].includes(ev.key)) {
+      ev.preventDefault(); ev.target.blur(); canvas.focus();
+    } else if (ev.target && (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT")) return;
     if (ev.key === "f" || ev.key === "F") { fit(); draw(); }
     if (ev.key === "Escape") { pinned = null; $("palette").value = ""; refreshGhost(); showDetail(hover); draw(); }
     if ((ev.key === "l" || ev.key === "L") && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); showItemLegend = !showItemLegend; draw(); }
@@ -1018,9 +1021,13 @@
     vscode.postMessage({ type: "status", text: highlight ? n + " entities match '" + highlight + "'" : "" });
     draw();
   };
-  $("palette").onchange = () => { $("ptype").hidden = !$("palette").value.endsWith("underground-belt"); refreshGhost(); draw(); };
-  $("pdir").onchange = () => { refreshGhost(); draw(); };
-  $("ptype").onchange = () => { refreshGhost(); draw(); };
+  // After any palette choice, hand keyboard focus back to the map so R / T / Delete / Esc work at once.
+  const refocus = () => { document.activeElement && document.activeElement.blur(); canvas.focus(); };
+  $("palette").onchange = () => { $("ptype").hidden = !$("palette").value.endsWith("underground-belt"); refreshGhost(); draw(); refocus(); };
+  $("pdir").onchange = () => { refreshGhost(); draw(); refocus(); };
+  $("ptype").onchange = () => { refreshGhost(); draw(); refocus(); };
+  $("feeditem").onchange = refocus; $("feedlane").onchange = refocus;
+  canvas.addEventListener("mousedown", refocus);
   $("undo").onclick = undo;
   $("clear").onclick = () => {
     const n = edits.remove.size + edits.recipe.size + edits.replace.size + edits.add.length;
