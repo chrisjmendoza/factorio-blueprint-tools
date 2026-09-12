@@ -12,9 +12,10 @@
       if (m.type === "open") document.getElementById("filepick").click();
       if (m.type === "export") download("patch.json", JSON.stringify(m.patch, null, 2));
       if (m.type === "feeds") {
-        // no Python behind a standalone page: hand the feeds file over so it can be placed beside the blueprint
-        setFlowStatus("standalone page: flow cannot run here. Downloaded feeds.json; save it as <name>.feeds.json beside the blueprint and open the print in the VS Code panel.", true);
-        download("feeds.json", JSON.stringify(m.feeds, null, 1));
+        // no Python behind a standalone page: keep the feeds in this browser and offer one explicit download
+        try { localStorage.setItem(feedsKey(), JSON.stringify(m.feeds)); } catch (e) { /* storage may be unavailable */ }
+        setFlowStatus(m.feeds.length + " feed(s) kept in this browser only; flow needs the VS Code panel. Use \"download feeds.json\" to save them beside the blueprint.", true);
+        document.getElementById("feeddownload").hidden = false;
       }
     },
   };
@@ -36,6 +37,7 @@
     }, 15000);
   }
   const $ = (id) => document.getElementById(id);
+  function feedsKey() { return "fbp.feeds." + ((bp && bp.label) || fileName || "untitled"); }
   if (!inVsCode) { $("standalone").hidden = false; document.body.classList.add("standalone"); }
   const canvas = $("map"), ctx = canvas.getContext("2d");
   const tip = $("tip"), detail = $("detail"), coords = $("coords");
@@ -240,7 +242,12 @@
     itemList = msg.items || itemList; flowData = null; feeds = [];
     fillItemOptions(); renderItems();
     if (inVsCode) { setFlowStatus("computing flow…"); flowWaiting(true); }
-    else setFlowStatus("standalone page: flow and feeds need the VS Code panel (fbp: Open blueprint viewer)", true);
+    else {
+      try { feeds = JSON.parse(localStorage.getItem(feedsKey()) || "[]"); } catch (e) { feeds = []; }
+      $("feeddownload").hidden = !feeds.length;
+      setFlowStatus(feeds.length ? feeds.length + " feed(s) restored from this browser; flow needs the VS Code panel" : "standalone page: flow and feeds need the VS Code panel (fbp: Open blueprint viewer)", true);
+      renderItems();
+    }
     base = bp.entities || [];
     edits.remove.clear(); edits.recipe.clear(); edits.replace.clear(); edits.add.length = 0; edits.history.length = 0;
     nextTemp = -1; pinned = null; hover = null;
@@ -920,6 +927,7 @@
     edits.remove.clear(); edits.recipe.clear(); edits.replace.clear(); edits.add.length = 0;
     pinned = null; rebuild(true); showDetail(null);
   };
+  $("feeddownload").onclick = () => download(((bp && bp.label) || "blueprint") + ".feeds.json", JSON.stringify(feeds, null, 1));
   $("nopalette").onclick = () => { $("palette").value = ""; $("ptype").hidden = true; refreshGhost(); draw(); };
   $("copypatch").onclick = () => vscode.postMessage({ type: "copy", text: JSON.stringify(buildPatch(), null, 2) });
   $("export").onclick = () => {
