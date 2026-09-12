@@ -351,6 +351,20 @@
         else if (m.status === "unknown") { ctx.strokeStyle = "#9a9a9a"; ctx.setLineDash([4, 4]); }
         else continue;
         outline(r); ctx.setLineDash([]);
+        if (m.status === "missing" && scale >= 7 && m.missing.length) {
+          // what is missing, written on the machine so the map alone answers the question
+          const xs = r.cells.map((c) => c[0]), ys = r.cells.map((c) => c[1]);
+          const x0 = Math.min(...xs), y1 = Math.max(...ys) + 1, w = Math.max(...xs) - x0 + 1;
+          const fs = Math.max(8, Math.min(11, scale * 0.6));
+          ctx.font = "bold " + fs + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          const text = "needs " + m.missing.map((i) => i.replace(/-/g, " ")).join(", ");
+          const tw = Math.min(ctx.measureText(text).width + 8, Math.max(w * scale, 60));
+          const cx = px(x0) + w * scale / 2, cy = py(y1) - fs * 0.8;
+          ctx.fillStyle = "rgba(160,20,20,0.92)"; ctx.fillRect(cx - tw / 2, cy - fs * 0.7, tw, fs * 1.4);
+          ctx.fillStyle = "#fff";
+          const label = ctx.measureText(text).width + 8 > tw ? text.slice(0, Math.floor(tw / (fs * 0.55))) + "…" : text;
+          ctx.fillText(label, cx, cy);
+        }
       }
     }
     if (feedMode || (showFlow && feeds.length)) {   // feed markers: a diamond in the item colour
@@ -924,6 +938,22 @@
       const sum = document.createElement("span"); sum.className = "muted"; sum.style.gridColumn = "1 / -1";
       sum.textContent = "machines: " + st.ok + " ok, " + st.missing + " missing inputs, " + st.unknown + " unknown (declare feeds)";
       el.appendChild(sum);
+      const missing = Object.entries(flowData.machines).filter(([id, m]) => m.status === "missing");
+      if (missing.length) {
+        head("missing inputs (" + missing.length + ") · click to go there");
+        const byRow = new Map(ents.filter((r) => r.baseId !== null).map((r) => [String(r.baseId), r]));
+        missing.sort((a, b) => (a[1].missing.join() + a[0]).localeCompare(b[1].missing.join() + b[0]));
+        for (const [id, m] of missing) {
+          const r = byRow.get(id); if (!r) continue;
+          const div = document.createElement("div"); div.className = "feed";
+          const sw = document.createElement("i"); sw.style.background = "#ff3b3b";
+          const span = document.createElement("span");
+          span.textContent = (r.e.recipe || r.e.name) + " @ (" + r.e.position.x + "," + r.e.position.y + ")  needs " + m.missing.join(", ");
+          span.style.cursor = "pointer";
+          span.onclick = () => { if (scale < 12) scale = 16; ox = canvas.width / 2 - r.e.position.x * scale; oy = canvas.height / 2 - r.e.position.y * scale; pinned = r; showDetail(r); draw(); };
+          div.appendChild(sw); div.appendChild(span); el.appendChild(div);
+        }
+      }
     }
   }
   let flowHighlight = "";
