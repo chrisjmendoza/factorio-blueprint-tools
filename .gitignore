@@ -13,3 +13,7 @@ dist/
 # icon atlas built from a local Factorio install; game art is not redistributable
 vscode/media/icons.png
 vscode/media/icons.js
+
+# static web build of the viewer (scripts/build-web.sh)
+public/
+.vercel/

@@ -39,6 +39,12 @@ All notable changes to fbp are recorded here. The format follows
   as the flow, and the smoke test checks the mark lands on the cell the flow
   sends the filtered item out of.
 
+- `scripts/build-web.sh` and `vercel.json` publish the viewer as a static site:
+  `viewer.html` becomes `index.html`, the example blueprint ships as
+  `sample.txt` behind a **load an example blueprint** button, and the icon atlas
+  is replaced by a stub, since Factorio's art is not ours to redistribute. The
+  smoke test runs against the built bundle as well as the source folder.
+
 ### Changed
 - Underground tunnel lines are drawn a segment per tile and dim themselves only
   where they need to: solid over belts and open ground, faint across a machine,

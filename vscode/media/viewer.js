@@ -1328,6 +1328,21 @@
       drop.hidden = true; resize(); load({ bp: b, footprints, recipes: recipeList, file: name || "pasted string" });
     } catch (e) { $("file").textContent = "error: " + (e.message || e); drop.hidden = false; }
   }
+  // The web build ships sample.txt beside the page so a first visit has something to look at.
+  // Inside VS Code there is always a blueprint to open, so the button stays hidden there.
+  if (!inVsCode) {
+    const sample = $("sample");
+    sample.hidden = false;
+    sample.onclick = async () => {
+      sample.disabled = true;
+      try {
+        const res = await fetch("sample.txt");
+        if (!res.ok) throw new Error("no example on this host (" + res.status + ")");
+        await loadText(await res.text(), "example blueprint");
+      } catch (e) { $("file").textContent = "error: " + (e.message || e); }
+      sample.disabled = false;
+    };
+  }
   $("dismiss").onclick = () => { $("standalone").hidden = true; resize(); };
   $("open").onclick = () => vscode.postMessage({ type: "open" });
   $("filepick").onchange = (ev) => { const f = ev.target.files[0]; if (f) f.text().then((t) => loadText(t, f.name)); ev.target.value = ""; };
