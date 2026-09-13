@@ -255,18 +255,17 @@
     else if (GD) { const st = new Set(); for (const r of Object.values(GD.recipes)) { Object.keys(r.ingredients || {}).forEach((k) => st.add(k)); Object.keys(r.results || {}).forEach((k) => st.add(k)); } itemList = [...st].sort(); }
     gamedataForFlow = GD || { recipes: {} };
     flowData = null; feeds = [];
+    base = bp.entities || [];
+    edits.remove.clear(); edits.recipe.clear(); edits.replace.clear(); edits.add.length = 0; edits.history.length = 0;
+    nextTemp = -1; pinned = null; hover = null;
     fillItemOptions();
     if (!inVsCode) {
       try { feeds = JSON.parse(localStorage.getItem(feedsKey()) || "[]"); } catch (e) { feeds = []; }
     }
+    legend();
+    rebuild(false);          // builds `ents`, which the flow reads
     computeFlowLocally();
     if (inVsCode) flowWaiting(true);   // the host also saves feeds and re-runs the Python; its answer replaces ours
-    base = bp.entities || [];
-    edits.remove.clear(); edits.recipe.clear(); edits.replace.clear(); edits.add.length = 0; edits.history.length = 0;
-    nextTemp = -1; pinned = null; hover = null;
-    fillRecipeOptions();
-    legend();
-    rebuild(false);
     showDetail(null);
   }
 
@@ -916,8 +915,8 @@
   $("gridlines").onchange = (ev) => { showGrid = ev.target.checked; draw(); };
   $("tunnels").onchange = (ev) => { showTunnels = ev.target.checked; draw(); };
   $("flow").onchange = (ev) => {
-    showFlow = ev.target.checked; showItemLegend = true; $("itemlegend").checked = true;
-    if (showFlow && !inVsCode) vscode.postMessage({ type: "status", text: "" }), $("file").textContent += "  ·  flow needs the VS Code panel (fbp: Open blueprint viewer)";
+    showFlow = ev.target.checked;
+    if (showFlow) { showItemLegend = true; $("itemlegend").checked = true; if (!flowData) computeFlowLocally(); }
     draw();
   };
   $("itemlegend").onchange = (ev) => { showItemLegend = ev.target.checked; draw(); };
@@ -1044,13 +1043,12 @@
     vscode.postMessage({ type: "export", patch: p });
   };
   for (const name of PALETTE) { const o = document.createElement("option"); o.value = name; o.textContent = name; $("palette").appendChild(o); }
-  function fillRecipeOptions() { /* options are built per selection in showDetail */ }
 
   // ---------------------------------------------------------------- loading without the extension host
   const drop = $("drop");
   $("mode").textContent = inVsCode
     ? "Running inside VS Code. The active editor's blueprint loads automatically; open… picks another file. Export runs fbp patch and fbp diff."
-    : "Running standalone in a browser: decoding happens here, footprints use built-in defaults, export downloads the patch JSON for `fbp patch`.";
+    : "Running standalone in a browser: decoding, flow and editing all happen in the page. Exporting an edited blueprint needs the VS Code panel.";
   drop.hidden = false;
   async function decodeStandalone(text) {
     const t = text.trim();
@@ -1073,6 +1071,7 @@
       drop.hidden = true; resize(); load({ bp: b, footprints, recipes: recipeList, file: name || "pasted string" });
     } catch (e) { $("file").textContent = "error: " + (e.message || e); drop.hidden = false; }
   }
+  $("dismiss").onclick = () => { $("standalone").hidden = true; resize(); };
   $("open").onclick = () => vscode.postMessage({ type: "open" });
   $("filepick").onchange = (ev) => { const f = ev.target.files[0]; if (f) f.text().then((t) => loadText(t, f.name)); ev.target.value = ""; };
   document.addEventListener("paste", (ev) => {
