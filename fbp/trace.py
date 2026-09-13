@@ -46,12 +46,19 @@ class Tracer:
     def _same_axis(self, a, b):
         return ((a.get("direction", 0) & 12) % 8) == ((b.get("direction", 0) & 12) % 8)
 
+    def _opposed(self, a, b):
+        """a points straight at b and b points straight back: a head-on meeting."""
+        return ((a.get("direction", 0) & 12) + 8) % 16 == (b.get("direction", 0) & 12)
+
     def upstream(self, b):
         """Belt entities that deliver into b.
 
         An underground exit receives from its entrance through the tunnel, and also from belts
         running into its SIDE (only the lane aligned with the open half gets through; the flow
-        applies that filter). Nothing can feed it along its own axis except the tunnel."""
+        applies that filter). Nothing can feed it along its own axis except the tunnel.
+
+        Two belts facing each other never connect: a belt running head-on into the hood of an
+        underground entrance, or into the front of any belt, just piles its items up at its end."""
         found = {}
         exit_ = is_underground(b) and b.get("type") == "output"
         if exit_:
@@ -65,6 +72,8 @@ class Tracer:
                     continue
                 if exit_ and self._same_axis(f, b):
                     continue
+                if self._opposed(f, b):
+                    continue
                 if (x, y) in self.outputs(f):
                     found[f["entity_number"]] = f
         return list(found.values())
@@ -77,6 +86,8 @@ class Tracer:
                 if is_underground(f) and f.get("type") == "output" and self._same_axis(b, f) \
                         and not (is_underground(b) and b.get("type") == "input"):
                     continue  # the back of an underground exit does not accept items; its sides do
+                if self._opposed(b, f):
+                    continue  # head-on: b dead-ends against f
                 found[f["entity_number"]] = f
         return list(found.values())
 

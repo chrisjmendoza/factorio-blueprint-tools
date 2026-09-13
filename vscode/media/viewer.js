@@ -61,6 +61,8 @@
     "curved-rail-b", "half-diagonal-rail", "cargo-wagon", "locomotive", "fluid-wagon", "artillery-wagon"]);
   const DIRS = { 0: [0, -1], 4: [1, 0], 8: [0, 1], 12: [-1, 0] };
   const DIRNAME = { 0: "N", 4: "E", 8: "S", 12: "W" };
+  // hover highlight for an inserter's two ends: where it takes from, where it puts.
+  const PICKUP_COL = "#35c8ff", DROP_COL = "#3ee06a";
 
   const TIER = {
     basic: { belt: "#c9a227", ug: "#7d6416", split: "#e6c352", reach: 5, label: "yellow" },
@@ -319,16 +321,35 @@
       const xs = r.cells.map((c) => c[0]), ys = r.cells.map((c) => c[1]);
       const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0 + 1, h = Math.max(...ys) - y0 + 1;
       ctx.fillRect(px(x0) + gap, py(y0) + gap, w * scale - gap * 2, h * scale - gap * 2);
-      if (r.cells.length > 1 && showLabels && scale >= 8 && (r.e.recipe || r.kind[0] === "furnace" || r.kind[0] === "crafter")) {
+      // A crafter shows its recipe; anything else multi-tile shows its own icon, so a radar, a
+      // roboport or a tank is recognisable and not just a coloured square. Only the machines fall
+      // back to text, which is what they did before there were icons.
+      const named = r.e.recipe || r.kind[0] === "furnace" || r.kind[0] === "crafter";
+      const art = showIcons ? (recipeIcon(r.e.recipe) || (iconCell(r.e.name) ? r.e.name : null)) : null;
+      // Belts, undergrounds, splitters and inserters read better as arrows than as icons, and so do
+      // the two directional pipe pieces; everything else 1x1 — chests, poles, lamps, pipes,
+      // combinators — gets its icon once the tiles are big enough to see it.
+      const arrowed = r.kind[0] === "belt" || r.kind[0] === "underground" || r.kind[0] === "splitter" ||
+        r.kind[0].endsWith("inserter") || r.e.name === "pipe-to-ground" || r.e.name === "pump";
+      const smallIcon = !!art && !arrowed && r.cells.length === 1 && showLabels && scale >= 12;
+      if (smallIcon) {
         const alpha = ctx.globalAlpha;
-        const art = showIcons ? (recipeIcon(r.e.recipe) || (iconCell(r.e.name) ? r.e.name : null)) : null;
+        deferredLabels.push(() => {
+          ctx.globalAlpha = alpha;
+          const side = scale * 0.74;
+          drawIcon(art, px(x0) + (scale - side) / 2, py(y0) + (scale - side) / 2, side);
+          ctx.globalAlpha = 1;
+        });
+      }
+      if (r.cells.length > 1 && showLabels && scale >= 8 && (named || art)) {
+        const alpha = ctx.globalAlpha;
         deferredLabels.push(() => {
           ctx.globalAlpha = alpha;
           const cx = px(x0) + w * scale / 2, cy = py(y0) + h * scale / 2;
           if (art) {
             const side = Math.min(w, h) * scale * 0.62;
             drawIcon(art, cx - side / 2, cy - side / 2, side);
-          } else {
+          } else if (named) {
             ctx.fillStyle = "rgba(0,0,0,0.8)";
             const fs = Math.max(8, Math.min(12, scale * 0.9));
             ctx.font = fs + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -337,7 +358,7 @@
           ctx.globalAlpha = 1;
         });
       }
-      if (scale >= 5 && !r.removed) decorate(r);
+      if (scale >= 5 && !r.removed && !smallIcon) decorate(r);
       ctx.globalAlpha = 1;
       if (r.removed) {   // red X
         ctx.strokeStyle = "#ff3b3b"; ctx.lineWidth = Math.max(1, scale / 8); ctx.beginPath();
@@ -468,8 +489,54 @@
         for (let k = 1; k <= reach; k++) ctx.fillRect(px(x + v[0] * k * step), py(y + v[1] * k * step), scale, scale);
         const p = ugPair(sel);
         if (p) { ctx.strokeStyle = "#ffd166"; ctx.lineWidth = 2; outline(p.pair); }
+      } else if (sel.kind[0].endsWith("inserter")) {
+        // `direction` points at the pickup tile; the drop is the same distance the other way. A
+        // long-handed inserter reaches two tiles and skips the one between, drawn dashed so the
+        // gap it hands over is obvious.
+        const d = (sel.e.direction || 0) & 12, v = DIRS[d] || [0, -1];
+        const reach = sel.kind[0] === "long inserter" ? 2 : 1;
+        const [x, y] = sel.cells[0];
+        if (reach === 2) {
+          ctx.setLineDash([Math.max(2, scale / 4), Math.max(2, scale / 4)]); ctx.lineWidth = 1.5;
+          for (const [s, col] of [[1, PICKUP_COL], [-1, DROP_COL]]) {
+            ctx.strokeStyle = col;
+            ctx.strokeRect(px(x + v[0] * s) + 2.5, py(y + v[1] * s) + 2.5, scale - 5, scale - 5);
+          }
+          ctx.setLineDash([]);
+        }
+        for (const [s, col] of [[1, PICKUP_COL], [-1, DROP_COL]])
+          inserterEnd(x + v[0] * reach * s, y + v[1] * reach * s, col, s < 0 ? sel : null);
       }
     }
+  }
+
+  // Which lane an inserter lands items on. The rule lives in flow.js so the highlight and the lane
+  // stripes can never disagree; +1 is the left lane, -1 the right, as in the stripe drawing above.
+  function dropLaneSign(ins, belt, cell) {
+    if (typeof FBPFlow === "undefined") return -1;
+    return FBPFlow.dropLane(ins.e, belt.e, cell) === "left" ? 1 : -1;
+  }
+  // One end of a hovered inserter: tint what it reaches and outline whatever stands there, so a
+  // 3x3 machine or a chest reads as the target rather than only the tile under the hand. Given
+  // `ins` (the drop end), a belt target is tinted on the landing lane only, half a tile wide.
+  function inserterEnd(x, y, col, ins) {
+    const belt = ins && (tiles.get(x + "," + y) || [])
+      .find((q) => !q.removed && (q.kind[0] === "belt" || q.kind[0] === "underground" || q.kind[0] === "splitter"));
+    let rx = px(x) + 1, ry = py(y) + 1, rw = scale - 2, rh = scale - 2;
+    if (belt) {
+      const d = (belt.e.direction || 0) & 12, v = DIRS[d] || [0, -1], lv = [v[1], -v[0]];
+      const sgn = dropLaneSign(ins, belt, [x, y]);
+      rw = lv[0] ? scale / 2 - 1.5 : scale - 2; rh = lv[1] ? scale / 2 - 1.5 : scale - 2;
+      rx = px(x) + scale / 2 + lv[0] * sgn * scale / 4 - rw / 2;
+      ry = py(y) + scale / 2 + lv[1] * sgn * scale / 4 - rh / 2;
+    }
+    ctx.globalAlpha = belt ? 0.42 : 0.3; ctx.fillStyle = col;
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = col; ctx.lineWidth = Math.max(2, scale / 7);
+    ctx.strokeRect(rx, ry, rw, rh);
+    const t = (tiles.get(x + "," + y) || []).filter((q) => !q.removed).sort((a, b) => a.cells.length - b.cells.length)[0];
+    if (t && t.cells.length > 1) { ctx.lineWidth = 2; outline(t); }
   }
 
   // On-map legend for item colours: bottom-left, most common items first, one or two columns.
@@ -517,7 +584,7 @@
     rows.push(["#39d353", "added by this patch"], ["#ff9f1c", "changed by this patch"], ["#ff3b3b", "removed / unpaired underground"]);
     const rowH = 16, pad = 8, colW = 230, maxRows = 14;
     const cols = rows.length > maxRows ? 2 : 1, nrows = Math.min(maxRows, Math.ceil(rows.length / cols));
-    const w = pad * 2 + colW * cols, h = pad * 2 + rowH * (nrows + 2);
+    const w = pad * 2 + colW * cols, h = pad * 2 + rowH * (nrows + 3);
     const x0 = 10, y0 = canvas.height - h - 10;
     ctx.fillStyle = "rgba(20,20,22,0.88)"; ctx.fillRect(x0, y0, w, h);
     ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
@@ -529,7 +596,9 @@
       ctx.fillStyle = col; ctx.fillRect(x, y - 6, 12, 12);
       ctx.fillStyle = "#eee"; ctx.fillText(txt.length > 36 ? txt.slice(0, 35) + "…" : txt, x + 18, y);
     });
-    ctx.fillStyle = "#888"; ctx.fillText("arrows: belt travel · inserter arrow points where the item goes · click header to hide", x0 + pad, y0 + pad + rowH * (nrows + 1) + rowH / 2);
+    ctx.fillStyle = "#888";
+    ctx.fillText("arrows: belt travel · inserter arrow points where the item goes", x0 + pad, y0 + pad + rowH * (nrows + 1) + rowH / 2);
+    ctx.fillText("hover an inserter: blue = pickup, green = drop (the lane it lands on) · click header to hide", x0 + pad, y0 + pad + rowH * (nrows + 2) + rowH / 2);
     legendBox = { x0, y0, w, h, entity: true };
   }
 
@@ -1008,6 +1077,7 @@
     if (!r) return null;
     const fluids = new Set(r.fluid_results || []);
     for (const k of Object.keys(r.results || {})) if (!fluids.has(k) && iconCell(k)) return k;
+    for (const k of Object.keys(r.results || {})) if (iconCell(k)) return k;   // oil processing: the fluid is the product
     return null;
   }
   function drawIcon(name, x, y, w) {

@@ -420,3 +420,66 @@ def test_flow_sideload_into_underground_exit_passes_one_lane(gd):
     # the exit still receives through its tunnel
     f2 = Flow(Grid(bp, gd.footprints()), gd, [{"x": 8, "y": 3, "items": ["pipe"], "lane": "both"}]).run()
     assert "pipe" in f2.lanes_of(f2.g.byid[5])["left"]
+
+
+def test_flow_head_on_belts_do_not_connect(gd):
+    # Row 90 of the base: belts run WEST head-on into the hood of an EAST-facing underground entrance, while a
+    # northbound belt sideloads iron into the entrance's south side. In game the westbound copper piles up at
+    # the end of its belt and never enters the tunnel; the exit carries iron on its right lane and nothing else.
+    bp = {"entities": [
+        {"entity_number": 1, "name": "underground-belt", "position": {"x": 4.5, "y": 3.5}, "direction": 4, "type": "input"},
+        {"entity_number": 2, "name": "underground-belt", "position": {"x": 8.5, "y": 3.5}, "direction": 4, "type": "output"},
+        {"entity_number": 3, "name": "transport-belt", "position": {"x": 5.5, "y": 3.5}, "direction": 12},   # head-on into the hood
+        {"entity_number": 4, "name": "transport-belt", "position": {"x": 6.5, "y": 3.5}, "direction": 12},
+        {"entity_number": 5, "name": "transport-belt", "position": {"x": 4.5, "y": 4.5}, "direction": 0},    # sideloads from the south
+        {"entity_number": 6, "name": "transport-belt", "position": {"x": 9.5, "y": 3.5}, "direction": 4},
+    ], "wires": []}
+    feeds = [{"x": 6, "y": 3, "items": ["copper-plate"], "lane": "both"}, {"x": 4, "y": 4, "items": ["iron-plate"], "lane": "left"}]
+    f = Flow(Grid(bp, gd.footprints()), gd, feeds).run()
+    for eid in (1, 2, 6):
+        L = f.lanes_of(f.g.byid[eid])
+        assert "copper-plate" not in L["left"] | L["right"], eid
+    assert f.lanes_of(f.g.byid[6]) == {"left": set(), "right": {"iron-plate"}}
+    tr = Tracer(f.g, gd)
+    assert tr.downstream(f.g.byid[3]) == []          # the westbound belt dead-ends
+    assert f.g.byid[3] not in tr.upstream(f.g.byid[1])
+
+    # Plain belts facing each other: neither feeds the other.
+    bp2 = {"entities": [
+        {"entity_number": 1, "name": "transport-belt", "position": {"x": 0.5, "y": 0.5}, "direction": 4},
+        {"entity_number": 2, "name": "transport-belt", "position": {"x": 1.5, "y": 0.5}, "direction": 12},
+    ], "wires": []}
+    f2 = Flow(Grid(bp2, gd.footprints()), gd, [{"x": 0, "y": 0, "items": ["coal"], "lane": "both"}]).run()
+    assert f2.lanes_of(f2.g.byid[2]) == {"left": set(), "right": set()}
+    assert Tracer(f2.g, gd).downstream(f2.g.byid[1]) == []
+
+
+def test_icons_collects_every_item_like_prototype():
+    """Science packs are `tool`, ammo is `ammo`, modules are `module`: an item group is anything
+    whose prototypes carry a stack size, so none of them need listing by name."""
+    from fbp import icons
+    dump = {
+        "item": {"iron-plate": {"icon": "__base__/a.png", "icon_size": 64, "stack_size": 100}},
+        "tool": {"automation-science-pack": {"icon": "__base__/b.png", "icon_size": 64, "stack_size": 200}},
+        "ammo": {"firearm-magazine": {"icon": "__base__/c.png", "stack_size": 200}},
+        "module": {"speed-module": {"icon": "__base__/d.png", "stack_size": 50}},
+        "fluid": {"lubricant": {"icon": "__base__/e.png"}},
+        "radar": {"radar": {"icon": "__base__/f.png", "icon_size": 64}},
+        "technology": {"automation-science-pack": {"icon": "__base__/wrong.png"}},   # same name, tech artwork
+        "recipe": {"iron-plate": {"icon": "__base__/wrong.png"}},
+        "tile": {"concrete": {"icon": "__base__/g.png"}},
+    }
+    got = icons.collect(dump)
+    for name in ("iron-plate", "automation-science-pack", "firearm-magazine", "speed-module", "lubricant", "radar"):
+        assert name in got, name
+    assert "concrete" not in got                       # tiles are not items and the viewer never draws them
+    assert got["automation-science-pack"][0] == "__base__/b.png"   # the item icon, not the technology's
+    assert got["iron-plate"][0] == "__base__/a.png"                # the item icon, not the recipe's
+    assert got["firearm-magazine"][1] == 64                        # default icon size when the proto omits it
+
+
+def test_icons_layered_icon_uses_first_layer():
+    from fbp import icons
+    assert icons.icon_of({"icons": [{"icon": "__base__/a.png", "icon_size": 32}, {"icon": "__base__/b.png"}]}) == ("__base__/a.png", 32)
+    assert icons.icon_of({"icon": "__base__/c.png"}) == ("__base__/c.png", 64)
+    assert icons.icon_of({}) == (None, 64)

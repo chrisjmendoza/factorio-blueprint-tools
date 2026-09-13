@@ -20,6 +20,10 @@ const ids = new Set([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
 
 const calls = {};
 const count = (name) => { calls[name] = (calls[name] || 0) + 1; };
+// Rectangles the page drew, with the colour in force at the time, so a test can ask "was that
+// tile tinted, and in which colour" rather than only "did anything draw".
+const ops = [];
+const paint = { fillStyle: "", strokeStyle: "" };
 
 function element(id) {
   const node = {
@@ -29,7 +33,9 @@ function element(id) {
     appendChild(c) { this.children.push(c); return c; },
     removeChild() {}, setAttribute() {}, getAttribute: () => null, click() { count("click"); },
     focus() {}, blur() {}, closest: () => null, querySelector: () => null,
-    addEventListener() {}, removeEventListener() {},
+    on: {},
+    addEventListener(type, fn) { (this.on[type] = this.on[type] || []).push(fn); },
+    removeEventListener() {},
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 1200, height: 800 }),
     insertBefore(c) { this.children.push(c); return c; },
   };
@@ -41,9 +47,13 @@ function element(id) {
       get(_, prop) {
         if (prop === "measureText") return () => ({ width: 10 });
         if (prop === "canvas") return node;
+        if (prop in paint) return paint[prop];
+        if (prop === "fillRect" || prop === "strokeRect" || prop === "drawImage") {
+          return (...args) => { count(prop); ops.push({ op: prop, args, fill: paint.fillStyle, stroke: paint.strokeStyle }); };
+        }
         return typeof prop === "string" && /^[a-z]/.test(prop) ? (() => count(prop)) : undefined;
       },
-      set() { return true; },
+      set(_, prop, value) { if (prop in paint) paint[prop] = value; return true; },
     });
   }
   return node;
@@ -54,7 +64,9 @@ const windowListeners = {}, documentListeners = {};
 const listen = (bag) => (type, fn) => { (bag[type] = bag[type] || []).push(fn); };
 
 const sandbox = {
-  console, setTimeout, clearTimeout, setInterval, clearInterval, Image: class { set src(_) {} },
+  console, setTimeout, clearTimeout, setInterval, clearInterval,
+  // the page waits for the atlas image before drawing icons; pretend it arrives at once
+  Image: class { set src(v) { this._src = v; if (this.onload) this.onload(); } },
   performance: { now: () => 0 },
   localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
   navigator: { clipboard: { writeText() {} } },
@@ -102,7 +114,83 @@ try {
 }
 
 if (!calls.fillRect) fail("nothing was drawn after loading a blueprint");
+
+// Hovering an inserter marks the tile it takes from and the tile it puts into. The view transform
+// lives inside the page, so recover it from the readout the page writes on every mousemove: the
+// scale is printed there, and a binary search for the pixel where the reported tile changes gives
+// the origin. Then the tinted rectangles can be checked against tiles, not pixels.
+const map = nodes.get("map");
+const move = (x, y) => { for (const fn of map.on.mousemove || []) fn({ clientX: x, clientY: y }); };
+const readTile = () => (nodes.get("coords").textContent.match(/tile (-?\d+), (-?\d+)\s+([\d.]+)/) || []).slice(1).map(Number);
+if (!map.on.mousemove) fail("the map has no mousemove handler");
+move(600, 400);
+const probe = readTile();
+if (probe.length !== 3) fail("the coords readout did not parse: " + JSON.stringify(nodes.get("coords").textContent));
+const scale = probe[2];
+// smallest pixel whose reported tile is `tile`, i.e. the tile's left/top edge
+function edge(axis, tile) {
+  let lo = 0, hi = axis === 0 ? map.width : map.height;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    axis === 0 ? move(mid, 400) : move(600, mid);
+    (readTile()[axis] >= tile ? (hi = mid) : (lo = mid));
+  }
+  return hi;
+}
+const ins = bp.entities.find((e) => e.name === "long-handed-inserter");
+if (!ins) fail("the fixture has no long-handed inserter to hover");
+const ix = Math.floor(ins.position.x), iy = Math.floor(ins.position.y);
+const ox = edge(0, ix) - ix * scale, oy = edge(1, iy) - iy * scale;
+const px = (x) => ox + x * scale, py = (y) => oy + y * scale;
+ops.length = 0;
+move(px(ix) + scale / 2, py(iy) + scale / 2);
+const tinted = (col) => ops.filter((o) => o.op === "fillRect" && o.fill === col);
+const PICKUP = "#35c8ff", DROP = "#3ee06a";
+for (const [col, what] of [[PICKUP, "pickup"], [DROP, "drop"]]) {
+  if (tinted(col).length !== 1) fail("hovering an inserter tinted " + tinted(col).length + " tiles for " + what + ", expected 1");
+}
+// direction points at the pickup; a long-handed inserter reaches two tiles, skipping the one between
+const d = ins.direction & 12, v = ({ 0: [0, -1], 4: [1, 0], 8: [0, 1], 12: [-1, 0] })[d] || [0, -1];
+for (const [col, sign, what] of [[PICKUP, 1, "pickup"], [DROP, -1, "drop"]]) {
+  const want = [ix + v[0] * 2 * sign, iy + v[1] * 2 * sign];
+  const [rx, ry, rw, rh] = tinted(col)[0].args;
+  const got = [Math.floor((rx + rw / 2 - ox) / scale), Math.floor((ry + rh / 2 - oy) / scale)];
+  if (got[0] !== want[0] || got[1] !== want[1]) {
+    fail("long-handed inserter at " + [ix, iy] + " facing " + d + ": " + what + " highlight on tile " + got + ", expected " + want);
+  }
+}
+
 const status = nodes.get("flowstatus").textContent;
 if (!/belts resolved/.test(status)) fail("the flow did not run in the page; status was: " + JSON.stringify(status));
 
-console.log("viewer smoke ok: %d draw calls, flow says %j", calls.fillRect, status);
+// An inserter drops on the far lane, so a belt target is tinted on that lane only: half a tile.
+// mall.txt has one such inserter, at (103,68) facing west onto an eastbound belt at (104,68).
+const ins2 = bp.entities.find((e) => e.name === "inserter" && Math.floor(e.position.x) === 103 && Math.floor(e.position.y) === 68);
+if (!ins2) fail("the fixture no longer has the inserter at (103,68) this test hovers");
+ops.length = 0;
+move(px(103) + scale / 2, py(68) + scale / 2);
+const drop = tinted(DROP);
+if (drop.length !== 1) fail("expected one drop tint, got " + drop.length);
+{
+  const [rx, ry, rw, rh] = drop[0].args;
+  if (Math.abs(rh - scale / 2) > 2) fail("a drop onto an eastbound belt should tint half a tile high, got " + rh + " of " + scale);
+  if (Math.abs(rw - scale) > 2) fail("it should still span the tile along the belt, got " + rw + " of " + scale);
+  const half = (ry + rh / 2 - oy) / scale - 68;    // 0.25 = north half (left lane), 0.75 = south (right)
+  if (half < 0.5) fail("the inserter stands west of the belt, so items land on the right lane (south half); got y offset " + half.toFixed(2));
+}
+
+// Icons: a radar is not a crafter and has no recipe, but it is a building the atlas knows, so it
+// draws its own icon rather than a bare coloured square. Skipped when `fbp icons` has not been run.
+if (fs.existsSync(path.join(MEDIA, "icons.js")) && fs.existsSync(path.join(MEDIA, "icons.png"))) {
+  const cell = sandbox.window.FBP_ICONS.names["radar"];
+  if (!cell) fail("the icon atlas has no radar icon");
+  const radar = bp.entities.find((e) => e.name === "radar");
+  if (!radar) fail("the fixture no longer has a radar");
+  ops.length = 0;
+  for (const fn of windowListeners.keydown || []) fn({ key: "+", preventDefault() {} });   // zoom in past the icon threshold
+  const size = sandbox.window.FBP_ICONS.size;
+  const drawn = ops.filter((o) => o.op === "drawImage" && o.args[1] === cell[0] * size && o.args[2] === cell[1] * size);
+  if (!drawn.length) fail("the radar drew no icon (" + ops.filter((o) => o.op === "drawImage").length + " icons drawn in all)");
+}
+
+console.log("viewer smoke ok: %d draw calls, inserter hover marks pickup and drop, flow says %j", calls.fillRect, status);
