@@ -450,16 +450,35 @@
     }
 
     if (showTunnels && scale >= 4) {
+      // The tunnel runs along the EDGE of its corridor rather than through the middle of the tiles.
+      // Everything worth reading — icons, recipe text, belt lane stripes — sits in the centre of a
+      // tile, and a line drawn through them was the one thing on the map that hid other things. A
+      // tick at each end ties the line back to its hood, and hovering either end (or its pair)
+      // draws the line through the centres at full strength, which is when you do want it on top.
+      const lit = pinned || hover;
       for (const r of ents) {
         if (r.kind[0] !== "underground" || r.removed || !visible(r)) continue;
         if (r.e.type === "input") {
           const p = ugPair(r);
           if (p) {
             const [x, y] = r.cells[0], [x2, y2] = p.pair.cells[0];
+            const on = lit === r || lit === p.pair;
+            const d = (r.e.direction || 0) & 12, v = DIRS[d] || [0, -1], lv = [v[1], -v[0]];
+            const off = on ? 0 : scale * 0.42;                  // 0.5 would be the tile boundary itself
+            const ax = px(x) + scale / 2 + lv[0] * off, ay = py(y) + scale / 2 + lv[1] * off;
+            const bx = px(x2) + scale / 2 + lv[0] * off, by = py(y2) + scale / 2 + lv[1] * off;
+            ctx.strokeStyle = TIER[tierOf(r.e.name)].belt;
+            ctx.lineWidth = Math.max(1, scale / (on ? 6 : 10)); ctx.globalAlpha = on ? 0.95 : 0.6;
             ctx.setLineDash([Math.max(2, scale / 3), Math.max(2, scale / 3)]);
-            ctx.lineWidth = Math.max(1, scale / 8); ctx.strokeStyle = TIER[tierOf(r.e.name)].belt; ctx.globalAlpha = 0.45;
-            ctx.beginPath(); ctx.moveTo(px(x) + scale / 2, py(y) + scale / 2); ctx.lineTo(px(x2) + scale / 2, py(y2) + scale / 2); ctx.stroke();
-            ctx.setLineDash([]); ctx.globalAlpha = 1;
+            ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+            ctx.setLineDash([]);
+            if (off) {   // solid ticks from the line back to each hood, so the ends are unambiguous
+              ctx.beginPath();
+              ctx.moveTo(ax, ay); ctx.lineTo(ax - lv[0] * off * 0.7, ay - lv[1] * off * 0.7);
+              ctx.moveTo(bx, by); ctx.lineTo(bx - lv[0] * off * 0.7, by - lv[1] * off * 0.7);
+              ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
           }
         }
         if (!ugPair(r)) { ctx.strokeStyle = "#ff3b3b"; ctx.lineWidth = 2; outline(r); }
