@@ -132,6 +132,11 @@ show up as unpaired; that is information, not an error.
 canvas: pan, zoom, hover for detail, search to highlight, and paint every belt
 lane with what the flow says is on it.
 
+- **A map that reads like the game** — zoomed in past 8 px a tile, belts become a
+  dark track under two bright chevrons a tile, so a run of belt reads as one
+  moving line, and machines get a lit top edge and a shaded bottom one so the
+  icon sits on a body rather than a flat patch. Zoomed out, belts go back to
+  solid tier colours, which is how you read the shape of a base at a glance.
 - **Belts by tier** — yellow, red, blue, green for turbo, undergrounds darker and
   splitters lighter. Each underground draws a dashed line to its partner down
   the middle of the tiles, in the tier's light colour over a dark casing so it
@@ -187,6 +192,12 @@ turns them off; without the atlas the viewer falls back to coloured tiles and
 the toggle is disabled.
 
 Icons that live inside mod `.zip` archives are skipped with a note.
+
+On the hosted page there is no atlas to find, so the **icons…** button takes the
+`icons.png` and `icons.js` that `fbp icons` wrote on your machine and keeps them
+in the browser (IndexedDB) for next time. Nothing is uploaded — the image stays
+a blob URL inside the page — and nothing about the game's art is served by the
+site itself.
 
 ### The viewer as a web page
 

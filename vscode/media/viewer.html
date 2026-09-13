@@ -10,7 +10,10 @@
 <div id="standalone" hidden>
   <div>
     Standalone page: viewing, editing, flow and feeds all work here, and feeds are remembered by this browser.
-    <b>export</b> needs the VS Code panel &mdash; open the blueprint .txt and run <b>fbp: Open blueprint viewer</b> (Ctrl+Shift+P).
+    For real item icons, run <code>fbp icons</code> against your own Factorio installation and load the
+    <code>icons.png</code> and <code>icons.js</code> it writes with the <b>icons…</b> button &mdash; the game's art is
+    Wube's and is not served from here. <b>export</b> needs the VS Code panel &mdash; open the blueprint .txt and run
+    <b>fbp: Open blueprint viewer</b> (Ctrl+Shift+P).
   </div>
   <div class="spacer"></div>
   <button id="dismiss" type="button" title="hide this notice">&times;</button>
@@ -27,6 +30,7 @@
     <label title="dashed line from each underground to its partner"><input id="tunnels" type="checkbox" checked> tunnels</label>
     <label title="colour legend on the map (Ctrl+L)"><input id="itemlegend" type="checkbox" checked> legend</label>
     <label title="real item icons; build them with `fbp icons`"><input id="icons" type="checkbox" checked> icons</label>
+    <button id="pickicons" type="button" class="ghost" title="use an icon atlas built by `fbp icons` on this machine; the browser remembers it">icons…</button>
   </span>
   <span class="group">
     <label class="flowtoggle" title="paint each belt lane with what can be on it"><input id="flow" type="checkbox"> flow</label>
@@ -88,6 +92,7 @@
   </div>
 </div>
 <input id="filepick" type="file" accept=".txt,.fbp,.json" hidden>
+<input id="iconpick" type="file" accept=".png,.js,.json" multiple hidden>
 <div id="tip" hidden></div>
 <div id="toast" hidden></div>
 <script src="gamedata.js"></script>

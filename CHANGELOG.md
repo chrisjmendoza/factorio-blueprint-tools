@@ -45,7 +45,15 @@ All notable changes to fbp are recorded here. The format follows
   is replaced by a stub, since Factorio's art is not ours to redistribute. The
   smoke test runs against the built bundle as well as the source folder.
 
+- The viewer takes an icon atlas by hand: **icons…** loads the `icons.png` and
+  `icons.js` that `fbp icons` built on your machine and keeps them in IndexedDB,
+  which is how the hosted page gets icons without anyone serving Wube's art.
+
 ### Changed
+- Zoomed in past 8 px a tile the map reads more like the game: belts are a dark
+  track under two bright chevrons a tile instead of a flat tile with one
+  triangle, and multi-tile machines get a lit top-left edge and a shaded
+  bottom-right one. Zoomed out, belts stay solid tier colours.
 - Underground tunnel lines are drawn a segment per tile and dim themselves only
   where they need to: solid over belts and open ground, faint across a machine,
   chest or pole so the icon and text underneath stay readable. The dash is the
