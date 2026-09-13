@@ -136,6 +136,11 @@ lane with what the flow says is on it.
   splitters lighter. Each underground draws a dashed line to its partner and
   shades its reach when hovered; unpaired ends are outlined red.
 - **Inserters by type**, drawn as an arrow pointing the way the item travels.
+  Hovering one marks both ends: blue on the tile it picks from, green on the
+  tile it drops onto, with the whole chest or machine standing there outlined.
+  A drop onto a belt is marked on the lane the items actually land on — the far
+  one — so a pair of inserters filling both lanes is obvious at a glance.
+  A long-handed inserter shows the tile it reaches over as a dashed outline.
 - **Machines outlined** green, red or dashed grey by flow status, with a label
   saying what a red one is missing, and a clickable list in the side panel.
 - **Edit mode** — remove, rotate, flip an underground, change a recipe from a
@@ -162,11 +167,16 @@ fbp icons                      # finds a Steam install, or pass --factorio DIR
 ```
 
 That reads the icons named in the prototype dump and writes
-`vscode/media/icons.png` and `icons.js`, both git-ignored. Reload the viewer and
-machines show the icon of what they make, belt lanes show the items on them once
-you zoom in, and the legend, the missing-inputs list and the recipe picker all
-use icons. The **icons** toggle turns them off; without the atlas the viewer
-falls back to coloured tiles and the toggle is disabled.
+`vscode/media/icons.png` and `icons.js`, both git-ignored. It takes every
+item-like prototype — science packs, ammo, modules, capsules, armour, guns and
+equipment as well as plain items — plus fluids and the buildings the viewer
+draws, so a modded install contributes its icons too. Reload the viewer and
+machines show the icon of what they make, every other building shows its own
+(radar, roboport, tank, turret), chests, poles and lamps show theirs once you
+zoom past 12 px a tile, belt lanes show the items on them, and the legend, the
+missing-inputs list and the recipe picker all use icons. The **icons** toggle
+turns them off; without the atlas the viewer falls back to coloured tiles and
+the toggle is disabled.
 
 Icons that live inside mod `.zip` archives are skipped with a note.
 

@@ -17,6 +17,26 @@ All notable changes to fbp are recorded here. The format follows
   verdict beneath it, and a search box listing only the recipes that machine's
   crafting categories allow, so an assembler is never offered a smelting recipe.
 - `fbp gamedata` also writes crafting categories for the viewer.
+- Hovering an inserter in the viewer highlights the tile it picks up from in
+  blue and the tile it drops onto in green, outlining the chest or machine on
+  each; a long-handed inserter also shows the tile it reaches over, dashed.
+  A drop onto a belt highlights only the lane the items land on, using the same
+  rule the flow uses (now exported from `flow.js`, so the two cannot disagree).
+- `fbp icons` finds every item-like prototype instead of only `item` groups, so
+  science packs, ammo, modules, capsules, armour, guns and equipment now have
+  icons, along with fluids and more buildings: 395 icons for a Space Age install
+  where there were 258. Mod items are picked up the same way.
+- The viewer draws an icon for any building the atlas knows, not just crafters
+  and furnaces, so radars, roboports, tanks and turrets are recognisable; 1x1
+  entities (chests, poles, lamps, pipes, combinators) get theirs once tiles are
+  at least 12 px. Belts and inserters keep their arrows.
+
+### Fixed
+- Two belts facing each other no longer connect in the flow or in `fbp trace`.
+  A belt running head-on into the hood of an underground entrance (or into the
+  front of any belt) was treated as a sideload, so its items leaked into the
+  tunnel and onto every belt downstream; in game they pile up at the end of the
+  belt. Same fix in the viewer's JavaScript port.
 
 ## [0.2.0] - 2026-09-12
 

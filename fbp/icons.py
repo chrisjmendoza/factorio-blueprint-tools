@@ -61,8 +61,14 @@ def icon_of(proto):
     return (icon, size or 64) if isinstance(icon, str) else (None, 64)
 
 
+# Groups that are not items but are worth an icon: fluids show up as recipe
+# products (oil processing, lubricant) and on the machines that make them.
+EXTRA_TYPES = ("fluid",)
+
 # Prototype groups worth drawing: everything that can sit on a belt or in a chest,
-# plus the buildings the viewer renders.
+# plus the buildings the viewer renders. Item-like groups are found by duck typing
+# (see `collect`), so science packs, ammo, modules, armour and the rest come along
+# without listing every prototype type Factorio has.
 ENTITY_TYPES = (
     "transport-belt", "underground-belt", "splitter", "inserter", "assembling-machine", "furnace",
     "lab", "container", "logistic-container", "electric-pole", "pipe", "pipe-to-ground", "pump",
@@ -71,13 +77,30 @@ ENTITY_TYPES = (
     "electric-turret", "fluid-turret", "arithmetic-combinator", "decider-combinator",
     "constant-combinator", "train-stop", "rail-signal", "rail-chain-signal", "rocket-silo",
     "agricultural-tower", "asteroid-collector", "thruster", "cargo-landing-pad", "space-platform-hub",
+    "artillery-turret", "nuclear-reactor", "heat-pipe", "loader", "loader-1x1", "linked-belt",
+    "power-switch", "programmable-speaker", "display-panel", "selector-combinator", "land-mine",
+    "lightning-attractor", "fusion-reactor", "fusion-generator", "electric-energy-interface",
+    "infinity-container", "infinity-pipe", "simple-entity-with-owner", "car", "spider-vehicle",
+    "locomotive", "cargo-wagon", "fluid-wagon", "artillery-wagon", "curved-rail-a", "curved-rail-b",
+    "straight-rail", "half-diagonal-rail", "rail-ramp", "rail-support", "elevated-straight-rail",
 )
+
+
+def _is_item_group(protos):
+    """True for a group of item prototypes. Items carry a stack size; entities,
+    recipes and technologies do not, so this catches `tool` (science packs),
+    `ammo`, `module`, `capsule`, `armor`, `gun` and anything a mod adds."""
+    for proto in protos.values():
+        if isinstance(proto, dict) and "stack_size" in proto:
+            return True
+    return False
 
 
 def collect(dump):
     """name -> (icon path, icon size) for items and the entities the viewer draws."""
     out = {}
-    groups = [k for k in dump if k == "item" or k.endswith("-item") or k in ENTITY_TYPES]
+    groups = [k for k, v in dump.items()
+              if k in ENTITY_TYPES or k in EXTRA_TYPES or (isinstance(v, dict) and _is_item_group(v))]
     for group in groups:
         protos = dump.get(group)
         if not isinstance(protos, dict):

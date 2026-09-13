@@ -111,10 +111,23 @@
     if (isUnderground(b.name) && b.type === "input") { const p = ugPair(g, b); return p ? [tileOf(p)] : []; }
     return [[x + dx, y + dy]];
   }
+  // An inserter drops on the FAR lane: the side of the belt away from where it stands. An inserter
+  // in line with the belt has no far side; the game puts those on the right. The viewer draws its
+  // hover highlight from this, so the picture and the flow can never disagree.
+  function dropLane(ins, belt, dropCell) {
+    const [ix, iy] = tileOf(ins), lv = leftOf(belt.direction || 0);
+    const rel = [Math.sign(ix - dropCell[0]), Math.sign(iy - dropCell[1])];   // long-handed inserters stand 2 tiles away
+    if (same(rel, lv)) return "right";
+    if (same(rel, [-lv[0], -lv[1]])) return "left";
+    return "right";
+  }
   const sameAxis = (a, b) => (((a.direction || 0) & 12) % 8) === (((b.direction || 0) & 12) % 8);
+  const opposed = (a, b) => ((((a.direction || 0) & 12) + 8) % 16) === ((b.direction || 0) & 12);
   function upstream(g, b) {
     // an underground exit receives through its tunnel and from belts running into its SIDE; the
-    // flow's underground filter then keeps only the lane aligned with the open half
+    // flow's underground filter then keeps only the lane aligned with the open half. Two belts
+    // facing each other never connect: head-on into the hood of an entrance, or into the front
+    // of any belt, the items just pile up at the end.
     const found = new Map();
     const exit = isUnderground(b.name) && b.type === "output";
     if (exit) { const p = ugPair(g, b); if (p) found.set(p.entity_number, p); }
@@ -123,6 +136,7 @@
         const f = g.beltAt(x + dx, y + dy);
         if (!f || f === b) continue;
         if (exit && sameAxis(f, b)) continue;
+        if (opposed(f, b)) continue;
         if (outputs(g, f).some((o) => same(o, [x, y]))) found.set(f.entity_number, f);
       }
     }
@@ -193,13 +207,6 @@
       const fwd = DIRS[(u.direction || 0) & 12], back = [-fwd[0], -fwd[1]];
       const open = u.type === "input" ? back : fwd;
       return same(leftOf(f.direction || 0), open) ? FL.left : FL.right;
-    }
-    function dropLane(ins, belt, dropCell) {
-      const [ix, iy] = tileOf(ins), lv = leftOf(belt.direction || 0);
-      const rel = [Math.sign(ix - dropCell[0]), Math.sign(iy - dropCell[1])];   // long-handed inserters stand 2 tiles away
-      if (same(rel, lv)) return "right";
-      if (same(rel, [-lv[0], -lv[1]])) return "left";
-      return "right";
     }
     function sourceItems(sources) {
       const items = new Set();
@@ -320,7 +327,7 @@
     return out;
   }
 
-  const api = { compute, cellsOf, kind, UNKNOWN };
+  const api = { compute, cellsOf, kind, dropLane, UNKNOWN };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.FBPFlow = api;
 })(typeof window !== "undefined" ? window : globalThis);
