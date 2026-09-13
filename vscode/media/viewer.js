@@ -70,6 +70,13 @@
     express: { belt: "#3b7fd6", ug: "#224b82", split: "#6ea3e6", reach: 9, label: "blue" },
     turbo: { belt: "#3fbf6b", ug: "#24703f", split: "#78d69a", reach: 11, label: "green" },
   };
+  // #rrggbb scaled toward black; belts become a dark track so their bright chevrons read as motion
+  // the way the game's belts do, and so the item icons on a lane have something to sit against.
+  function shade(hex, f) {
+    const n = parseInt(hex.slice(1), 16);
+    const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.max(0, Math.min(255, Math.round(v * f))));
+    return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+  }
   function tierOf(name) {
     if (name.startsWith("fast-")) return "fast";
     if (name.startsWith("express-")) return "express";
@@ -317,10 +324,25 @@
       if (!visible(r)) continue;
       const dim = (highlight && !matches(r)) || r.removed;
       ctx.globalAlpha = r.removed ? 0.3 : dim ? 0.25 : 1;
-      ctx.fillStyle = r.kind[2];
+      const beltish = r.kind[0] === "belt" || r.kind[0] === "underground" || r.kind[0] === "splitter";
+      // Zoomed out, belts stay bright: they are how you read the shape of a base at a glance.
+      // Zoomed in, they become a dark track under bright chevrons, which is how the game draws them
+      // and what gives the item icons on each lane something to sit against.
+      const track = beltish && scale >= 8;
+      ctx.fillStyle = track ? shade(r.kind[2], r.kind[0] === "splitter" ? 0.5 : r.kind[0] === "underground" ? 0.7 : 0.42) : r.kind[2];
       const xs = r.cells.map((c) => c[0]), ys = r.cells.map((c) => c[1]);
       const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0 + 1, h = Math.max(...ys) - y0 + 1;
-      ctx.fillRect(px(x0) + gap, py(y0) + gap, w * scale - gap * 2, h * scale - gap * 2);
+      const bx = px(x0) + gap, by = py(y0) + gap, bw = w * scale - gap * 2, bh = h * scale - gap * 2;
+      ctx.fillRect(bx, by, bw, bh);
+      if (!beltish && r.cells.length > 1 && scale >= 8 && !r.removed) {
+        // a lit top-left edge and a shaded bottom-right one: enough for a machine to read as a body
+        // with the icon sitting on it, rather than as a flat patch of colour
+        ctx.lineWidth = Math.max(1, scale / 14);
+        ctx.strokeStyle = "rgba(255,255,255,0.22)";
+        ctx.beginPath(); ctx.moveTo(bx, by + bh); ctx.lineTo(bx, by); ctx.lineTo(bx + bw, by); ctx.stroke();
+        ctx.strokeStyle = "rgba(0,0,0,0.35)";
+        ctx.beginPath(); ctx.moveTo(bx + bw, by); ctx.lineTo(bx + bw, by + bh); ctx.lineTo(bx, by + bh); ctx.stroke();
+      }
       // A crafter shows its recipe; anything else multi-tile shows its own icon, so a radar, a
       // roboport or a tank is recognisable and not just a coloured square. Only the machines fall
       // back to text, which is what they did before there were icons.
@@ -679,6 +701,21 @@
       ctx.fillRect(ix + side * 0.15, iy + side * 0.15, side * 0.7, side * 0.7);
     }
   }
+  // A pair of ">" strokes along the direction of travel, centred on a tile.
+  function chevrons(cx, cy, v, colour) {
+    const wing = scale * 0.26, nose = scale * 0.16, gap = scale * 0.3;
+    ctx.strokeStyle = colour; ctx.lineWidth = Math.max(1.5, scale * 0.085);
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    for (const s of [-1, 1]) {
+      const ox2 = cx + v[0] * s * gap * 0.5, oy2 = cy + v[1] * s * gap * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(ox2 - v[0] * nose + v[1] * wing, oy2 - v[1] * nose - v[0] * wing);
+      ctx.lineTo(ox2 + v[0] * nose, oy2 + v[1] * nose);
+      ctx.lineTo(ox2 - v[0] * nose - v[1] * wing, oy2 - v[1] * nose + v[0] * wing);
+      ctx.stroke();
+    }
+    ctx.lineCap = "butt"; ctx.lineJoin = "miter";
+  }
   function decorate(r) {
     const e = r.e, k = r.kind[0];
     const d = (e.direction || 0) & 12, v = DIRS[d] || [0, -1];
@@ -694,9 +731,16 @@
       ctx.fillStyle = k === "underground" ? (e.type === "input" ? "#3a2e08" : "#f5d76e") : "rgba(0,0,0,0.6)";
       const sp = k === "splitter" ? splitterInfo(r) : null;
       const icon = !!(sp && sp.filter && scale >= 10);
+      // Two chevrons a tile, pointing the way the belt runs, bright against the dark track: a run of
+      // belt reads as one moving line the way it does in the game. An underground keeps its single
+      // hood triangle, because light or dark is what tells an entrance from an exit.
+      const tier = TIER[tierOf(e.name)];
+      const arrows = scale >= 8 && k !== "underground";
       for (const c of (k === "splitter" ? r.cells : [r.cells[0]])) {
         if (icon && c[0] === sp.outCell[0] && c[1] === sp.outCell[1]) continue;   // the filter icon sits here
-        tri(px(c[0]) + scale / 2, py(c[1]) + scale / 2);
+        const ax = px(c[0]) + scale / 2, ay = py(c[1]) + scale / 2;
+        if (arrows) chevrons(ax, ay, v, k === "splitter" ? tier.split : tier.belt);
+        else tri(ax, ay);
       }
       if (sp) splitterMarks(r, sp, icon);
     } else if (k.endsWith("inserter")) {
@@ -1141,6 +1185,38 @@
     img.onerror = () => { iconAtlas = null; iconMap = null; };
     img.src = iconUrl;
   }
+  // Factorio's artwork is not ours to serve, so the hosted page ships no atlas. Instead you point
+  // it at the icons.png and icons.js that `fbp icons` built from your own installation, and the
+  // browser keeps them in IndexedDB (a couple of megabytes, too big for localStorage) so the next
+  // visit already has them. Nothing is uploaded: the image stays a blob URL in the page.
+  function applyAtlas(map, url) {
+    if (!map || !map.names) return false;
+    iconMap = map;
+    const box = $("icons");
+    box.disabled = false; box.checked = true; showIcons = true;
+    box.parentElement.title = "real item icons";
+    loadIcons(url);
+    return true;
+  }
+  function atlasStore(mode) {
+    return new Promise((resolve, reject) => {
+      if (typeof indexedDB === "undefined") return reject(new Error("no storage"));
+      const open = indexedDB.open("fbp-viewer", 1);
+      open.onupgradeneeded = () => open.result.createObjectStore("icons");
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => resolve(open.result.transaction("icons", mode).objectStore("icons"));
+    });
+  }
+  const atlasRequest = (req) => new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
+  function rememberedAtlas() { return atlasStore("readonly").then((st) => atlasRequest(st.get("atlas"))); }
+  function rememberAtlas(map, blob) { return atlasStore("readwrite").then((st) => atlasRequest(st.put({ map, blob }, "atlas"))); }
+  // `fbp icons` writes `window.FBP_ICONS = {...}`; take the object out of it without eval, which the
+  // page's content security policy forbids anyway. A plain .json manifest works too.
+  function parseAtlasManifest(text) {
+    const a = text.indexOf("{"), b = text.lastIndexOf("}");
+    if (a < 0 || b < a) return null;
+    try { return JSON.parse(text.slice(a, b + 1)); } catch (e) { return null; }
+  }
   function iconCell(name) { return iconMap && iconAtlas && name ? iconMap.names[name] : null; }
   // The icon for a recipe is the icon of what it makes; oil processing and the like have none.
   function recipeIcon(recipe) {
@@ -1362,7 +1438,24 @@
     });
   }
 
-  if (!inVsCode) loadIcons(null);
+  $("pickicons").onclick = () => $("iconpick").click();
+  $("iconpick").onchange = async (ev) => {
+    const files = [...ev.target.files]; ev.target.value = "";
+    const png = files.find((f) => /\.png$/i.test(f.name));
+    const manifest = files.find((f) => /\.(js|json)$/i.test(f.name));
+    const say = (msg) => { $("file").textContent = msg; };
+    if (!png || !manifest) return say("pick both files: icons.png and icons.js (from `fbp icons`)");
+    const map = parseAtlasManifest(await manifest.text());
+    if (!map) return say("could not read " + manifest.name + "; expected the icons.js that `fbp icons` wrote");
+    if (!applyAtlas(map, URL.createObjectURL(png))) return say(manifest.name + " has no icon names in it");
+    const loaded = Object.keys(map.names).length + " icons loaded from " + png.name;
+    say(loaded);
+    rememberAtlas(map, png).catch(() => say(loaded + " (this browser will not keep them for next time)"));
+  };
+  if (!inVsCode) {
+    loadIcons(null);
+    if (!iconMap) rememberedAtlas().then((saved) => { if (saved) applyAtlas(saved.map, URL.createObjectURL(saved.blob)); }).catch(() => {});
+  }
   window.addEventListener("resize", resize);
   window.addEventListener("message", (ev) => {
     const m = ev.data;
