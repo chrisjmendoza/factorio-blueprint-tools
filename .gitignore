@@ -9,3 +9,7 @@ dist/
 *.png
 !docs/*.png
 !tests/fixtures/*.png
+
+# icon atlas built from a local Factorio install; game art is not redistributable
+vscode/media/icons.png
+vscode/media/icons.js

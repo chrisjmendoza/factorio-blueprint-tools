@@ -1,6 +1,7 @@
 """Command line interface. Run `fbp -h` or `python -m fbp -h`."""
 import argparse
 import json
+import os
 import sys
 from collections import Counter
 
@@ -183,6 +184,20 @@ def cmd_gamedata(a, gd):
     print("wrote %s: %d recipes, %d footprints" % (path, len(slim["recipes"]), len(slim["footprints"])))
 
 
+def cmd_icons(a, gd):
+    from . import icons
+    root = icons.find_factorio(a.factorio)
+    dump_path = a.dump or gamedata._dump_path()
+    if not dump_path or not os.path.exists(dump_path):
+        sys.exit("data-raw-dump.json not found; run `factorio --dump-data` with the game closed, or pass --dump")
+    with open(dump_path, encoding="utf-8") as handle:
+        dump = json.load(handle)
+    media = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vscode", "media")
+    n, skipped, png = icons.build(dump, root, os.path.join(media, "icons.png"),
+                                  os.path.join(media, "icons.js"), size=a.size)
+    print("wrote %s and icons.js: %d icons at %dpx from %s" % (png, n, a.size, root))
+
+
 def cmd_recipe(a, gd):
     for name in a.name:
         r = gd.recipes.get(name)
@@ -245,11 +260,17 @@ def main(argv=None):
     s = sub.add_parser("gamedata", help="build data/gamedata.json from the game's data-raw dump")
     s.add_argument("--dump", help="path to data-raw-dump.json (default: script-output)"); s.set_defaults(fn=cmd_gamedata)
 
+    s = sub.add_parser("icons", help="build the viewer's icon atlas from your Factorio installation")
+    s.add_argument("--factorio", help="installation directory (default: FBP_FACTORIO_DIR or the usual places)")
+    s.add_argument("--dump", help="path to data-raw-dump.json")
+    s.add_argument("--size", type=int, default=48, help="pixels per icon in the atlas (default 48)")
+    s.set_defaults(fn=cmd_icons)
+
     s = sub.add_parser("recipe", help="show recipe(s) from the loaded data"); s.add_argument("name", nargs="+")
     s.set_defaults(fn=cmd_recipe)
 
     a = ap.parse_args(argv)
-    gd = gamedata.GameData() if a.cmd != "gamedata" else None
+    gd = None if a.cmd in ("gamedata", "icons") else gamedata.GameData()
     a.fn(a, gd)
 
 

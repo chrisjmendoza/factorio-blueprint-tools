@@ -150,6 +150,26 @@ agree). So `vscode/media/viewer.html` works opened directly in a browser too, by
 dropping a `.txt` on it or pasting a string. Only **export** needs the extension,
 because only it can run Python and write files.
 
+### Real Factorio icons
+
+The viewer can draw the game's own item and machine icons instead of coloured
+tiles. **Factorio's artwork belongs to Wube Software and is not redistributable**,
+so none of it is in this repository. Build the atlas from the copy of the game
+you already own:
+
+```bash
+fbp icons                      # finds a Steam install, or pass --factorio DIR
+```
+
+That reads the icons named in the prototype dump and writes
+`vscode/media/icons.png` and `icons.js`, both git-ignored. Reload the viewer and
+machines show the icon of what they make, belt lanes show the items on them once
+you zoom in, and the legend, the missing-inputs list and the recipe picker all
+use icons. The **icons** toggle turns them off; without the atlas the viewer
+falls back to coloured tiles and the toggle is disabled.
+
+Icons that live inside mod `.zip` archives are skipped with a note.
+
 ### Installing the extension
 
 No build step. Link the folder into your extensions directory and reload:

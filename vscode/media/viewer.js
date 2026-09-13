@@ -315,13 +315,21 @@
       const xs = r.cells.map((c) => c[0]), ys = r.cells.map((c) => c[1]);
       const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0 + 1, h = Math.max(...ys) - y0 + 1;
       ctx.fillRect(px(x0) + gap, py(y0) + gap, w * scale - gap * 2, h * scale - gap * 2);
-      if (r.cells.length > 1 && showLabels && scale >= 9 && (r.e.recipe || r.kind[0] === "furnace")) {
+      if (r.cells.length > 1 && showLabels && scale >= 8 && (r.e.recipe || r.kind[0] === "furnace" || r.kind[0] === "crafter")) {
         const alpha = ctx.globalAlpha;
+        const art = showIcons ? (recipeIcon(r.e.recipe) || (iconCell(r.e.name) ? r.e.name : null)) : null;
         deferredLabels.push(() => {
-          ctx.globalAlpha = alpha; ctx.fillStyle = "rgba(0,0,0,0.8)";
-          const fs = Math.max(8, Math.min(12, scale * 0.9));
-          ctx.font = fs + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-          wrapText((r.e.recipe || r.e.name).replace(/-/g, " "), px(x0) + w * scale / 2, py(y0) + h * scale / 2, w * scale - 4, fs);
+          ctx.globalAlpha = alpha;
+          const cx = px(x0) + w * scale / 2, cy = py(y0) + h * scale / 2;
+          if (art) {
+            const side = Math.min(w, h) * scale * 0.62;
+            drawIcon(art, cx - side / 2, cy - side / 2, side);
+          } else {
+            ctx.fillStyle = "rgba(0,0,0,0.8)";
+            const fs = Math.max(8, Math.min(12, scale * 0.9));
+            ctx.font = fs + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            wrapText((r.e.recipe || r.e.name).replace(/-/g, " "), cx, cy, w * scale - 4, fs);
+          }
           ctx.globalAlpha = 1;
         });
       }
@@ -350,6 +358,20 @@
             const cx = px(x) + scale / 2 + lv[0] * sign * scale * 0.25, cy = py(y) + scale / 2 + lv[1] * sign * scale * 0.25;
             const along = scale * 0.8, across = Math.max(2, scale * 0.3);
             const n = Math.min(items.length, 4), seg = along / n;
+            if (showIcons && iconAtlas && scale >= 11 && n <= 2) {
+              // one small icon per item on the lane, drawn on its side of the belt
+              const side = Math.min(scale * 0.42, along / n - 1);
+              for (let i = 0; i < n; i++) {
+                if (flowHighlight && items[i] !== flowHighlight) continue;
+                const off = -along / 2 + seg * i + seg / 2;
+                const ix = v[0] === 0 ? cx : cx + off, iy = v[0] === 0 ? cy + off : cy;
+                if (!drawIcon(items[i], ix - side / 2, iy - side / 2, side)) {
+                  ctx.fillStyle = itemColor(items[i]);
+                  ctx.fillRect(ix - across / 2, iy - across / 2, across, across);
+                }
+              }
+              continue;
+            }
             for (let i = 0; i < n; i++) {
               ctx.fillStyle = itemColor(items[i]);
               if (flowHighlight && items[i] !== flowHighlight) ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -660,7 +682,9 @@
       list.innerHTML = ""; list.hidden = !matches.length;
       for (const name of matches) {
         const o = document.createElement("div"); o.className = "recipe-option";
-        o.textContent = name; if (name === e.recipe) o.classList.add("is-current");
+        const art = recipeIcon(name);
+        if (art) { const sw = swatch(art, null, 16); sw.className = "opt-icon"; o.appendChild(sw); }
+        o.appendChild(document.createTextNode(name)); if (name === e.recipe) o.classList.add("is-current");
         o.onmousedown = (ev) => { ev.preventDefault(); apply(name); };
         list.appendChild(o);
       }
@@ -950,6 +974,8 @@
     draw();
   };
   $("itemlegend").onchange = (ev) => { showItemLegend = ev.target.checked; draw(); };
+  $("icons").onchange = (ev) => { showIcons = ev.target.checked; draw(); };
+  if (!iconMap) { $("icons").checked = false; $("icons").disabled = true; $("icons").parentElement.title = "run `fbp icons` to build the atlas from your Factorio installation"; }
   $("feedmode").onchange = (ev) => {
     feedMode = ev.target.checked; document.body.classList.toggle("feeding", feedMode);
     if (feedMode && editMode) { editMode = false; $("editmode").checked = false; document.body.classList.remove("editing"); ghost = null; }
@@ -957,6 +983,53 @@
     resize();
   };
   let gamedataForFlow = null, recipeCategory = {}, craftCategories = {};
+
+  // ---------------------------------------------------------------- icons
+  // `fbp icons` builds icons.png + icons.js from a local Factorio install. They are optional and
+  // never committed, so everything below degrades to the coloured tiles when they are absent.
+  let iconMap = (typeof window !== "undefined" && window.FBP_ICONS) || null;
+  let iconAtlas = null, iconUrl = null, showIcons = true;
+  function loadIcons(url) {
+    if (!iconMap) return;
+    iconUrl = url || iconMap.file || "icons.png";
+    const img = new Image();
+    img.onload = () => { iconAtlas = img; renderItems(); if (pinned || hover) showDetail(pinned || hover); draw(); };
+    img.onerror = () => { iconAtlas = null; iconMap = null; };
+    img.src = iconUrl;
+  }
+  function iconCell(name) { return iconMap && iconAtlas && name ? iconMap.names[name] : null; }
+  // The icon for a recipe is the icon of what it makes; oil processing and the like have none.
+  function recipeIcon(recipe) {
+    if (!recipe) return null;
+    if (iconCell(recipe)) return recipe;
+    const r = gamedataForFlow && gamedataForFlow.recipes && gamedataForFlow.recipes[recipe];
+    if (!r) return null;
+    const fluids = new Set(r.fluid_results || []);
+    for (const k of Object.keys(r.results || {})) if (!fluids.has(k) && iconCell(k)) return k;
+    return null;
+  }
+  function drawIcon(name, x, y, w) {
+    const c = iconCell(name); if (!c) return false;
+    const s = iconMap.size;
+    ctx.drawImage(iconAtlas, c[0] * s, c[1] * s, s, s, x, y, w, w);
+    return true;
+  }
+  // Panel swatch: the real icon where there is one, else the colour the map uses.
+  function swatch(name, colour, px) {
+    const i = document.createElement("i");
+    const c = iconCell(name);
+    if (c && iconUrl) {
+      const side = px || 14;
+      i.style.width = i.style.height = side + "px";
+      i.style.backgroundImage = 'url("' + iconUrl + '")';
+      i.style.backgroundSize = (iconMap.cols * side) + "px " + (iconMap.rows * side) + "px";
+      i.style.backgroundPosition = "-" + (c[0] * side) + "px -" + (c[1] * side) + "px";
+      i.style.borderRadius = "0";
+    } else {
+      i.style.background = colour || "#6e6e6e";
+    }
+    return i;
+  }
   // Recipes this machine can actually be set to. Falls back to every recipe when the game data
   // does not describe the machine, so an unknown or modded building is not left with an empty list.
   function recipesFor(name) {
@@ -1007,7 +1080,7 @@
       feeds.forEach((f, i) => {
         const div = document.createElement("div"); div.className = "feed";
         const b = document.createElement("button"); b.textContent = "×"; b.title = "remove this feed"; b.onclick = () => { feeds.splice(i, 1); pushFeeds(); };
-        const sw = document.createElement("i"); sw.style.background = itemColor(f.items[0] || "?");
+        const sw = swatch(f.items[0], itemColor(f.items[0] || "?"));
         const span = document.createElement("span"); span.textContent = f.items.join("+") + " @ (" + f.x + "," + f.y + ") " + f.lane;
         span.style.cursor = "pointer"; span.onclick = () => { ox = canvas.width / 2 - (f.x + 0.5) * scale; oy = canvas.height / 2 - (f.y + 0.5) * scale; draw(); };
         div.appendChild(b); div.appendChild(sw); div.appendChild(span); el.appendChild(div);
@@ -1019,8 +1092,8 @@
       const names = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
       head("item colours (" + names.length + " on belts) · click one to highlight");
       for (const n of names) {
-        const sw = document.createElement("i"); sw.style.background = itemColor(n);
-        const lab = document.createElement("span"); lab.textContent = n + "  ·  " + counts[n] + " belts";
+        const sw = swatch(n, itemColor(n));
+        const lab = document.createElement("span"); lab.textContent = n.replace(/-/g, " ") + "  ·  " + counts[n] + " belts";
         lab.style.cursor = "pointer"; lab.onclick = () => { $("search").value = ""; highlight = ""; flowHighlight = flowHighlight === n ? "" : n; draw(); };
         el.appendChild(sw); el.appendChild(lab);
       }
@@ -1037,7 +1110,7 @@
         for (const [id, m] of missing) {
           const r = byRow.get(id); if (!r) continue;
           const div = document.createElement("div"); div.className = "feed";
-          const sw = document.createElement("i"); sw.style.background = "#ff3b3b";
+          const sw = swatch(recipeIcon(r.e.recipe), "#ff3b3b");
           const span = document.createElement("span");
           span.textContent = (r.e.recipe || r.e.name) + " @ (" + r.e.position.x + "," + r.e.position.y + ")  needs " + m.missing.join(", ");
           span.style.cursor = "pointer";
@@ -1129,10 +1202,11 @@
     });
   }
 
+  if (!inVsCode) loadIcons(null);
   window.addEventListener("resize", resize);
   window.addEventListener("message", (ev) => {
     const m = ev.data;
-    if (m.type === "blueprint") { drop.hidden = true; resize(); load(m); }
+    if (m.type === "blueprint") { drop.hidden = true; resize(); load(m); if (!iconAtlas) loadIcons(m.iconsUrl); }
     if (m.type === "error") { $("file").textContent = "error: " + m.message; }
     if (m.type === "exported") { vscode.postMessage({ type: "status", text: "exported " + m.file }); }
     if (m.type === "flowstatus") { setFlowStatus(m.text); }

@@ -7,6 +7,12 @@ All notable changes to fbp are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- `fbp icons` builds an icon atlas from a local Factorio installation, and the
+  viewer draws real item and machine icons: the product on each machine, the
+  items on each belt lane once zoomed in, and icons in the legend, the
+  missing-inputs list and the recipe picker. The game's art is not
+  redistributable, so the atlas is generated locally and git-ignored, and the
+  viewer falls back to coloured tiles without it.
 - The side panel leads with the machine's recipe: the current recipe, the flow
   verdict beneath it, and a search box listing only the recipes that machine's
   crafting categories allow, so an assembler is never offered a smelting recipe.

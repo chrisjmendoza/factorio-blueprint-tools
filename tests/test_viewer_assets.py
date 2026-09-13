@@ -31,6 +31,14 @@ def script_ids():
     return set(re.findall(r'\$\("([^"]+)"\)', js)) | set(re.findall(r'getElementById\("([^"]+)"\)', js))
 
 
+def test_optional_scripts_are_referenced_before_the_viewer():
+    """gamedata.js and icons.js define globals viewer.js reads, so they must load first."""
+    html = read("viewer.html")
+    order = [m for m in re.findall(r'<script src="([^"]+)"', html)]
+    assert order.index("viewer.js") == len(order) - 1, "viewer.js must be the last script"
+    assert "icons.js" in order and "gamedata.js" in order
+
+
 def test_every_id_the_script_uses_exists_in_the_page():
     missing = sorted(script_ids() - html_ids() - {"recipelist"})   # recipelist is created at runtime
     assert missing == [], "viewer.js looks up ids the page does not define: %s" % missing
@@ -63,6 +71,8 @@ def test_classes_used_by_the_page_are_styled():
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node not available")
 def test_scripts_parse():
-    for name in ("viewer.js", "flow.js", "gamedata.js"):
-        subprocess.run([shutil.which("node"), "--check", os.path.join(MEDIA, name)], check=True,
-                       capture_output=True)
+    for name in ("viewer.js", "flow.js", "gamedata.js", "icons.js"):
+        path = os.path.join(MEDIA, name)
+        if not os.path.exists(path):
+            continue          # icons.js is generated from a local game install and is not committed
+        subprocess.run([shutil.which("node"), "--check", path], check=True, capture_output=True)

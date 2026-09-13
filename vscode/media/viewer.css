@@ -67,7 +67,9 @@ button.ghost { background: transparent; border: 1px solid var(--vscode-panel-bor
 .recipe-option.is-current { color: #5fae6a; font-weight: 600; }
 .recipe-options { margin: 2px 0 0 0; border: 1px solid var(--vscode-input-border, #555); background: var(--vscode-input-background, #2a2a2a); max-height: 220px; overflow: auto; }
 .recipe-options[hidden] { display: none; }
-.recipe-option { padding: 3px 8px; cursor: pointer; font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; }
+.recipe-option { display: flex; gap: 6px; align-items: center; padding: 3px 8px; cursor: pointer; font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; }
+.opt-icon { flex: 0 0 auto; width: 16px; height: 16px; background-repeat: no-repeat; }
+#legend i, #items i { background-repeat: no-repeat; }
 .recipe-option:hover { background: rgba(255,159,28,0.25); }
 
 /* Overlays */

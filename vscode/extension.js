@@ -61,7 +61,10 @@ function send(doc) {
     const bp = firstBlueprint(obj);
     if (!bp) throw new Error("No blueprint in this file");
     const g = loadGamedata();
-    panel.webview.postMessage({ type: "blueprint", bp, footprints: g.footprints, recipes: g.recipes, items: g.items, file: path.basename(doc.fileName) });
+    const iconsPng = path.join(toolsPath(), "vscode", "media", "icons.png");
+    const iconsUrl = fs.existsSync(iconsPng) ? String(panel.webview.asWebviewUri(vscode.Uri.file(iconsPng))) : null;
+    panel.webview.postMessage({ type: "blueprint", bp, footprints: g.footprints, recipes: g.recipes,
+                                items: g.items, iconsUrl, file: path.basename(doc.fileName) });
     panel.title = "fbp: " + (bp.label || path.basename(doc.fileName));
     runFlow(doc.fileName);
   } catch (e) {
@@ -190,11 +193,12 @@ function openViewer(context) {
     });
     const mediaUri = (f) => panel.webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, "media", f)));
     let html = fs.readFileSync(path.join(context.extensionPath, "media", "viewer.html"), "utf8");
-    const csp = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data:; style-src ' +
+    const csp = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src ' + panel.webview.cspSource + ' data:; style-src ' +
       panel.webview.cspSource + " 'unsafe-inline'; script-src " + panel.webview.cspSource + ';">';
     html = html.replace("<!--CSP-->", csp)
       .replace('href="viewer.css"', 'href="' + mediaUri("viewer.css") + '"')
       .replace('src="gamedata.js"', 'src="' + mediaUri("gamedata.js") + '"')
+      .replace('src="icons.js"', 'src="' + mediaUri("icons.js") + '"')
       .replace('src="flow.js"', 'src="' + mediaUri("flow.js") + '"')
       .replace('src="viewer.js"', 'src="' + mediaUri("viewer.js") + '"');
     panel.webview.html = html;
