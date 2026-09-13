@@ -451,11 +451,11 @@
     }
 
     if (showTunnels && scale >= 4) {
-      // The tunnel runs along the EDGE of its corridor rather than through the middle of the tiles.
-      // Everything worth reading — icons, recipe text, belt lane stripes — sits in the centre of a
-      // tile, and a line drawn through them was the one thing on the map that hid other things. A
-      // tick at each end ties the line back to its hood, and hovering either end (or its pair)
-      // draws the line through the centres at full strength, which is when you do want it on top.
+      // The tunnel line runs down the middle, tile by tile, and each tile decides its own strength:
+      // solid over belts and open ground, faint where it crosses a machine, chest or pole so the
+      // icon and the text underneath stay readable. The dash is the tier's light colour over a dark
+      // casing — a tunnel usually runs over belts of its own tier, and a yellow dash on a yellow
+      // belt cannot be seen at all. Hovering either end draws the whole run solid.
       const lit = pinned || hover;
       for (const r of ents) {
         if (r.kind[0] !== "underground" || r.removed || !visible(r)) continue;
@@ -464,22 +464,29 @@
           if (p) {
             const [x, y] = r.cells[0], [x2, y2] = p.pair.cells[0];
             const on = lit === r || lit === p.pair;
-            const d = (r.e.direction || 0) & 12, v = DIRS[d] || [0, -1], lv = [v[1], -v[0]];
-            const off = on ? 0 : scale * 0.42;                  // 0.5 would be the tile boundary itself
-            const ax = px(x) + scale / 2 + lv[0] * off, ay = py(y) + scale / 2 + lv[1] * off;
-            const bx = px(x2) + scale / 2 + lv[0] * off, by = py(y2) + scale / 2 + lv[1] * off;
-            ctx.strokeStyle = TIER[tierOf(r.e.name)].belt;
-            ctx.lineWidth = Math.max(1, scale / (on ? 6 : 10)); ctx.globalAlpha = on ? 0.95 : 0.6;
-            ctx.setLineDash([Math.max(2, scale / 3), Math.max(2, scale / 3)]);
-            ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-            ctx.setLineDash([]);
-            if (off) {   // solid ticks from the line back to each hood, so the ends are unambiguous
-              ctx.beginPath();
-              ctx.moveTo(ax, ay); ctx.lineTo(ax - lv[0] * off * 0.7, ay - lv[1] * off * 0.7);
-              ctx.moveTo(bx, by); ctx.lineTo(bx - lv[0] * off * 0.7, by - lv[1] * off * 0.7);
-              ctx.stroke();
+            const d = (r.e.direction || 0) & 12, v = DIRS[d] || [0, -1];
+            const t = TIER[tierOf(r.e.name)];
+            const core = Math.max(1.5, scale / (on ? 6 : 9)), dash = Math.max(3, scale * 0.45);
+            // a tile the line should tread lightly on: anything that is not belt and not bare ground
+            const covers = (tx, ty) => (tiles.get(tx + "," + ty) || []).some((q) => !q.removed && q !== r && q !== p.pair &&
+              q.kind[0] !== "belt" && q.kind[0] !== "underground" && q.kind[0] !== "splitter");
+            const n = Math.max(Math.abs(x2 - x), Math.abs(y2 - y));
+            ctx.setLineDash([dash, dash * 0.75]); ctx.lineCap = "butt";
+            for (let k = 0; k <= n; k++) {
+              const tx = x + v[0] * k, ty = y + v[1] * k;
+              const s0 = k === 0 ? 0 : -0.5, s1 = k === n ? 0 : 0.5;
+              if (s0 === s1) continue;
+              const cx = px(tx) + scale / 2, cy = py(ty) + scale / 2;
+              const ax = cx + v[0] * s0 * scale, ay = cy + v[1] * s0 * scale;
+              const bx = cx + v[0] * s1 * scale, by = cy + v[1] * s1 * scale;
+              ctx.globalAlpha = on || !covers(tx, ty) ? 0.95 : 0.22;
+              ctx.lineDashOffset = (k + s0) * scale;      // keep one dash pattern across the segments
+              ctx.strokeStyle = "rgba(12,12,14,0.9)"; ctx.lineWidth = core + Math.max(2, scale * 0.14);
+              ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+              ctx.strokeStyle = t.split; ctx.lineWidth = core;
+              ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
             }
-            ctx.globalAlpha = 1;
+            ctx.setLineDash([]); ctx.lineDashOffset = 0; ctx.globalAlpha = 1;
           }
         }
         if (!ugPair(r)) { ctx.strokeStyle = "#ff3b3b"; ctx.lineWidth = 2; outline(r); }
