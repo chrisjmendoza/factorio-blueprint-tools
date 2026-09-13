@@ -254,6 +254,9 @@
     if (msg.items && msg.items.length) itemList = msg.items;
     else if (GD) { const st = new Set(); for (const r of Object.values(GD.recipes)) { Object.keys(r.ingredients || {}).forEach((k) => st.add(k)); Object.keys(r.results || {}).forEach((k) => st.add(k)); } itemList = [...st].sort(); }
     gamedataForFlow = GD || { recipes: {} };
+    // A recipe with no category is "crafting" in Factorio; a machine lists the categories it accepts.
+    recipeCategory = {}; craftCategories = (GD && GD.crafting_categories) || {};
+    if (GD) for (const [name, r] of Object.entries(GD.recipes)) recipeCategory[name] = r.category || "crafting";
     flowData = null; feeds = [];
     base = bp.entities || [];
     edits.remove.clear(); edits.recipe.clear(); edits.replace.clear(); edits.add.length = 0; edits.history.length = 0;
@@ -616,6 +619,60 @@
   function button(label, fn, title) {
     const b = document.createElement("button"); b.textContent = label; b.onclick = fn; if (title) b.title = title; return b;
   }
+  // The side panel leads with the thing most often changed: the machine's recipe, with its flow
+  // verdict right beneath it. Identity, raw fields and the edit buttons follow.
+  function recipePicker(r) {
+    const e = r.e, allowed = recipesFor(e.name);
+    const box = document.createElement("div"); box.className = "recipebox";
+
+    const row = document.createElement("div"); row.className = "recipepick";
+    const lab = document.createElement("span"); lab.className = "muted"; lab.textContent = "recipe";
+    const cur = document.createElement("b"); cur.className = "current"; cur.textContent = e.recipe || "none set";
+    row.appendChild(lab); row.appendChild(cur); box.appendChild(row);
+
+    if (flowData) {
+      const m = flowData.machines[String(r.flowId)];
+      if (m && m.status !== "none") {
+        const v = document.createElement("div"); v.className = "verdict " + m.status;
+        v.textContent = m.status === "ok" ? "all inputs arrive"
+          : m.status === "missing" ? "missing " + m.missing.join(", ")
+          : "depends on a furnace whose input is not declared";
+        box.appendChild(v);
+      }
+    }
+
+    const inp = document.createElement("input");
+    inp.placeholder = "change recipe: type to search " + allowed.length + " this machine can make…";
+    inp.value = ""; inp.spellcheck = false; inp.autocomplete = "off";
+    const list = document.createElement("div"); list.className = "recipe-options"; list.hidden = true;
+    const apply = (v) => {
+      v = (v || "").trim(); if (!v || v === e.recipe) return;
+      if (recipeList.length && !recipeList.includes(v)) { toast("not a recipe: " + v); return; }
+      if (allowed.length && !allowed.includes(v)) { toast(e.name + " cannot make " + v); return; }
+      if (!editMode) { $("editmode").checked = true; $("editmode").onchange({ target: $("editmode") }); }
+      act({ kind: "recipe", r, recipe: v });
+    };
+    let matches = [];
+    const refresh = () => {
+      const q = inp.value.trim().toLowerCase();
+      matches = (q ? allowed.filter((n) => n.includes(q)) : allowed.slice())
+        .sort((x, y) => (x.startsWith(q) ? 0 : 1) - (y.startsWith(q) ? 0 : 1) || x.localeCompare(y)).slice(0, 14);
+      list.innerHTML = ""; list.hidden = !matches.length;
+      for (const name of matches) {
+        const o = document.createElement("div"); o.className = "recipe-option";
+        o.textContent = name; if (name === e.recipe) o.classList.add("is-current");
+        o.onmousedown = (ev) => { ev.preventDefault(); apply(name); };
+        list.appendChild(o);
+      }
+    };
+    inp.oninput = refresh;
+    inp.onkeydown = (ev) => { if (ev.key === "Enter") apply(matches[0] || inp.value); if (ev.key === "Escape") { inp.value = ""; refresh(); } ev.stopPropagation(); };
+    inp.onfocus = refresh;
+    inp.onblur = () => setTimeout(() => { list.hidden = true; }, 150);
+    box.appendChild(inp); box.appendChild(list);
+    return box;
+  }
+
   function showDetail(r) {
     detail.innerHTML = "";
     if (!r) {
@@ -626,48 +683,21 @@
       detail.appendChild(d); return;
     }
     const e = r.e;
-    const h = document.createElement("h3"); h.textContent = e.name + (r.baseId !== null ? " #" + r.baseId : " (new)"); detail.appendChild(h);
+    const h = document.createElement("h3"); h.textContent = e.name + (r.baseId !== null ? " #" + r.baseId : " (new)");
+    detail.appendChild(h);
+
+    if (r.kind[0] === "crafter" && !r.removed) detail.appendChild(recipePicker(r));
+
     const pre = document.createElement("pre"); pre.textContent = describe(r); detail.appendChild(pre);
-    detail.appendChild(button("copy id", () => vscode.postMessage({ type: "copy", text: String(r.baseId) })));
-    detail.appendChild(button("copy position", () => vscode.postMessage({ type: "copy", text: e.position.x + " " + e.position.y })));
-    detail.appendChild(button("copy JSON", () => vscode.postMessage({ type: "copy", text: JSON.stringify(e) })));
-    if (r.kind[0] === "crafter" && !r.removed) {
-      // Recipe picker: type to filter the 600+ recipes. Changing it is an edit, so edit mode switches on.
-      const wrap = document.createElement("div"); wrap.className = "recipepick";
-      const lab = document.createElement("span"); lab.textContent = "recipe: "; wrap.appendChild(lab);
-      // A plain filtered list under the box; the browser's native datalist popup misplaces itself in this panel.
-      const inp = document.createElement("input"); inp.placeholder = e.recipe || "type a recipe…";
-      inp.value = ""; inp.spellcheck = false; inp.autocomplete = "off"; inp.title = "type to filter; click a match or press Enter for the first one";
-      const list = document.createElement("div"); list.className = "recipe-options"; list.hidden = true;
-      const apply = (v) => {
-        v = (v || "").trim(); if (!v || v === e.recipe) return;
-        if (recipeList.length && !recipeList.includes(v)) { toast("not a recipe: " + v); return; }
-        if (!editMode) { $("editmode").checked = true; $("editmode").onchange({ target: $("editmode") }); }
-        act({ kind: "recipe", r, recipe: v });
-      };
-      let matches = [];
-      const refresh = () => {
-        const q = inp.value.trim().toLowerCase();
-        matches = q ? recipeList.filter((n) => n.includes(q)).sort((x, y) => (x.startsWith(q) ? 0 : 1) - (y.startsWith(q) ? 0 : 1) || x.localeCompare(y)).slice(0, 12) : [];
-        list.innerHTML = ""; list.hidden = !matches.length;
-        for (const name of matches) {
-          const o = document.createElement("div"); o.className = "recipe-option"; o.textContent = name;
-          o.onmousedown = (ev) => { ev.preventDefault(); apply(name); };
-          list.appendChild(o);
-        }
-      };
-      inp.oninput = refresh;
-      inp.onkeydown = (ev) => { if (ev.key === "Enter") apply(matches[0] || inp.value); if (ev.key === "Escape") { inp.value = ""; refresh(); } ev.stopPropagation(); };
-      inp.onblur = () => setTimeout(() => { list.hidden = true; }, 150);
-      inp.onfocus = refresh;
-      wrap.appendChild(inp); detail.appendChild(wrap); detail.appendChild(list);
-    }
     if (editMode) {
-      detail.appendChild(document.createElement("br"));
       detail.appendChild(button(r.removed ? "restore" : "remove", () => act({ kind: "toggleRemove", r }), "Delete"));
       if (DIRECTIONAL.test(e.name) || r.cells.length > 1) detail.appendChild(button("rotate", () => act({ kind: "rotate", r }), "R"));
       if (r.kind[0] === "underground") detail.appendChild(button("flip in/out", () => act({ kind: "flip", r }), "T"));
+      detail.appendChild(document.createElement("br"));
     }
+    detail.appendChild(button("copy id", () => vscode.postMessage({ type: "copy", text: String(r.baseId) })));
+    detail.appendChild(button("copy position", () => vscode.postMessage({ type: "copy", text: e.position.x + " " + e.position.y })));
+    detail.appendChild(button("copy JSON", () => vscode.postMessage({ type: "copy", text: JSON.stringify(e) })));
     const pre2 = document.createElement("pre"); pre2.textContent = JSON.stringify(e, null, 1); detail.appendChild(pre2);
   }
 
@@ -926,7 +956,16 @@
     if (feedMode && !showFlow) { showFlow = true; $("flow").checked = true; }
     resize();
   };
-  let gamedataForFlow = null;
+  let gamedataForFlow = null, recipeCategory = {}, craftCategories = {};
+  // Recipes this machine can actually be set to. Falls back to every recipe when the game data
+  // does not describe the machine, so an unknown or modded building is not left with an empty list.
+  function recipesFor(name) {
+    const cats = craftCategories[name];
+    if (!cats || !cats.length || !recipeList.length) return recipeList;
+    const ok = new Set(cats);
+    const out = recipeList.filter((n) => ok.has(recipeCategory[n] || "crafting"));
+    return out.length ? out : recipeList;
+  }
   // The flow is computed right here (flow.js, a port of fbp/flow.py) so it works in any browser.
   // Inside VS Code the host additionally saves the feeds file and answers with the Python result.
   function computeFlowLocally() {

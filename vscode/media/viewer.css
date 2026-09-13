@@ -56,9 +56,16 @@ button.ghost { background: transparent; border: 1px solid var(--vscode-panel-bor
 #detail h3 { margin: 6px 0 4px; font-size: 13px; }
 #detail pre { white-space: pre-wrap; word-break: break-all; font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; background: var(--vscode-textCodeBlock-background, #252526); padding: 6px; border-radius: 3px; }
 #detail button { margin: 2px 4px 6px 0; }
-.recipepick { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
-.recipepick input { flex: 1; min-width: 0; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #ddd); border: 1px solid var(--vscode-input-border, #555); padding: 2px 6px; font: inherit; }
-.recipe-options { margin: -2px 0 8px 0; border: 1px solid var(--vscode-input-border, #555); background: var(--vscode-input-background, #2a2a2a); max-height: 220px; overflow: auto; }
+.recipebox { margin: 6px 0 10px; padding: 7px 8px; border: 1px solid var(--vscode-panel-border, #555); border-left: 3px solid #5fae6a; background: rgba(95,174,106,0.07); border-radius: 2px; }
+.recipepick { display: flex; gap: 6px; align-items: baseline; }
+.recipepick .current { font-size: 13px; word-break: break-all; }
+.recipebox input { width: 100%; box-sizing: border-box; margin-top: 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #ddd); border: 1px solid var(--vscode-input-border, #555); padding: 3px 6px; font: inherit; }
+.verdict { margin-top: 4px; font-size: 11px; }
+.verdict.ok { color: #39d353; }
+.verdict.missing { color: #ff6b6b; font-weight: 600; }
+.verdict.unknown { color: #9a9a9a; }
+.recipe-option.is-current { color: #5fae6a; font-weight: 600; }
+.recipe-options { margin: 2px 0 0 0; border: 1px solid var(--vscode-input-border, #555); background: var(--vscode-input-background, #2a2a2a); max-height: 220px; overflow: auto; }
 .recipe-options[hidden] { display: none; }
 .recipe-option { padding: 3px 8px; cursor: pointer; font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; }
 .recipe-option:hover { background: rgba(255,159,28,0.25); }
