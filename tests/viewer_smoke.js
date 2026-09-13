@@ -236,4 +236,49 @@ move(px(109) + scale / 2, py(75) + scale / 2);       // hovering the entrance
   if (Math.abs(offset) > 0.02) fail("a hovered tunnel should run through the tile centres; offset " + offset.toFixed(2) + " tiles");
 }
 
+// A filtered splitter is marked on the side the filtered item leaves by. The mark has to name the
+// same side the flow does, so this feeds a two-item belt into one and checks both: the flow sends
+// iron plate out of one cell, and the drawing puts the filter mark on that same cell.
+{
+  const splitter = {
+    entities: [
+      { entity_number: 1, name: "transport-belt", position: { x: 0.5, y: 0.5 }, direction: 4 },
+      { entity_number: 2, name: "splitter", position: { x: 1.5, y: 1 }, direction: 4,
+        filter: { name: "iron-plate", quality: "normal", comparator: "=" }, output_priority: "right" },
+      { entity_number: 3, name: "transport-belt", position: { x: 2.5, y: 0.5 }, direction: 4 },
+      { entity_number: 4, name: "transport-belt", position: { x: 2.5, y: 1.5 }, direction: 4 },
+    ],
+    wires: [],
+  };
+  for (const fn of windowListeners.message) fn({ data: { type: "blueprint", bp: splitter, file: "splitter.json" } });
+  calibrate();
+
+  // what the flow says: the filtered item leaves by one cell, everything else by the other
+  const feeds = [{ x: 0, y: 0, items: ["iron-plate", "copper-plate"], lane: "both" }];
+  const flow = sandbox.window.FBPFlow.compute(splitter, null, sandbox.window.FBP_GAMEDATA || { recipes: {} }, feeds);
+  const laneItems = (id) => { const L = flow.lanes[String(id)] || { left: [], right: [] }; return [...new Set(L.left.concat(L.right))].sort(); };
+  const top = laneItems(3), bottom = laneItems(4);
+  if (JSON.stringify(top) !== JSON.stringify(["copper-plate"]) || JSON.stringify(bottom) !== JSON.stringify(["iron-plate"])) {
+    fail("the flow did not split the two items as expected: top " + JSON.stringify(top) + ", bottom " + JSON.stringify(bottom));
+  }
+  const wantCell = [1, 1];        // the splitter cell feeding the belt that gets the iron plate
+
+  // what the page draws: the filter icon, or a coloured square when there is no atlas
+  ops.length = 0;
+  move(px(8) + scale / 2, py(8) + scale / 2);          // empty ground, so nothing is hovered
+  const cell = sandbox.window.FBP_ICONS && sandbox.window.FBP_ICONS.names["iron-plate"];
+  const marks = ops.filter((o) => (o.op === "drawImage" && cell && o.args[1] === cell[0] * sandbox.window.FBP_ICONS.size) ||
+                                  (o.op === "fillRect" && o.fill === "#b9c4d2"));
+  if (!marks.length) fail("a filtered splitter drew no filter mark");
+  // both the edge bar and the icon are drawn in the filtered item's colours; every one of them
+  // belongs to the cell the flow sends that item out of
+  for (const m of marks) {
+    const [mx, my, mw, mh] = m.op === "drawImage" ? [m.args[5], m.args[6], m.args[7], m.args[7]] : m.args;
+    const got = [Math.floor((mx + mw / 2 - ox) / scale), Math.floor((my + mh / 2 - oy) / scale)];
+    if (got[0] !== wantCell[0] || got[1] !== wantCell[1]) {
+      fail("a filter mark (" + m.op + ") is on cell " + got + " but the flow sends the filtered item out of " + wantCell);
+    }
+  }
+}
+
 console.log("viewer smoke ok: %d draw calls, inserter hover marks pickup and drop, flow says %j", calls.fillRect, status);

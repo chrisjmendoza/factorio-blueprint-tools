@@ -144,6 +144,10 @@ lane with what the flow says is on it.
   A drop onto a belt is marked on the lane the items actually land on — the far
   one — so a pair of inserters filling both lanes is obvious at a glance.
   A long-handed inserter shows the tile it reaches over as a dashed outline.
+- **Splitters show their sorting** — a bar across the priority output edge, in
+  the colour of the filtered item with that item's icon on the cell it leaves
+  by, and a dimmer bar on a preferred input. The side panel spells it out, and
+  says so when a filter has no output priority and therefore does nothing.
 - **Machines outlined** green, red or dashed grey by flow status, with a label
   saying what a red one is missing, and a clickable list in the side panel.
 - **Edit mode** — remove, rotate, flip an underground, change a recipe from a

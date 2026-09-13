@@ -31,6 +31,14 @@ All notable changes to fbp are recorded here. The format follows
   entities (chests, poles, lamps, pipes, combinators) get theirs once tiles are
   at least 12 px. Belts and inserters keep their arrows.
 
+- Filtered and priority splitters are marked in the viewer: a bar across the
+  preferred output edge, drawn in the filtered item's colour with that item's
+  icon on the cell it leaves by, and a dimmer bar on a preferred input. The side
+  panel lists the filter and the priorities, and points out a filter with no
+  output priority, which does nothing. The drawing uses the same left/right rule
+  as the flow, and the smoke test checks the mark lands on the cell the flow
+  sends the filtered item out of.
+
 ### Changed
 - Underground tunnel lines run along the edge of their corridor instead of
   through the middle of the tiles, so they no longer cross the icons, recipe
