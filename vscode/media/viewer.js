@@ -327,8 +327,9 @@
       const named = r.e.recipe || r.kind[0] === "furnace" || r.kind[0] === "crafter";
       const art = showIcons ? (recipeIcon(r.e.recipe) || (iconCell(r.e.name) ? r.e.name : null)) : null;
       // Belts, undergrounds, splitters and inserters read better as arrows than as icons, and so do
-      // the two directional pipe pieces; everything else 1x1 — chests, poles, lamps, pipes,
-      // combinators — gets its icon once the tiles are big enough to see it.
+      // the two directional pipe pieces; everything else — chests, poles, lamps, pipes, combinators
+      // — gets its icon once the tiles are big enough to see it. A splitter shows its filter item
+      // instead of a generic splitter icon, which is the part its shape does not tell you.
       const arrowed = r.kind[0] === "belt" || r.kind[0] === "underground" || r.kind[0] === "splitter" ||
         r.kind[0].endsWith("inserter") || r.e.name === "pipe-to-ground" || r.e.name === "pump";
       const smallIcon = !!art && !arrowed && r.cells.length === 1 && showLabels && scale >= 12;
@@ -341,7 +342,7 @@
           ctx.globalAlpha = 1;
         });
       }
-      if (r.cells.length > 1 && showLabels && scale >= 8 && (named || art)) {
+      if (r.cells.length > 1 && showLabels && scale >= 8 && !arrowed && (named || art)) {
         const alpha = ctx.globalAlpha;
         deferredLabels.push(() => {
           ctx.globalAlpha = alpha;
@@ -603,7 +604,7 @@
     rows.push(["#39d353", "added by this patch"], ["#ff9f1c", "changed by this patch"], ["#ff3b3b", "removed / unpaired underground"]);
     const rowH = 16, pad = 8, colW = 230, maxRows = 14;
     const cols = rows.length > maxRows ? 2 : 1, nrows = Math.min(maxRows, Math.ceil(rows.length / cols));
-    const w = pad * 2 + colW * cols, h = pad * 2 + rowH * (nrows + 3);
+    const w = pad * 2 + colW * cols, h = pad * 2 + rowH * (nrows + 4);
     const x0 = 10, y0 = canvas.height - h - 10;
     ctx.fillStyle = "rgba(20,20,22,0.88)"; ctx.fillRect(x0, y0, w, h);
     ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
@@ -617,7 +618,8 @@
     });
     ctx.fillStyle = "#888";
     ctx.fillText("arrows: belt travel · inserter arrow points where the item goes", x0 + pad, y0 + pad + rowH * (nrows + 1) + rowH / 2);
-    ctx.fillText("hover an inserter: blue = pickup, green = drop (the lane it lands on) · click header to hide", x0 + pad, y0 + pad + rowH * (nrows + 2) + rowH / 2);
+    ctx.fillText("hover an inserter: blue = pickup, green = drop (the lane it lands on)", x0 + pad, y0 + pad + rowH * (nrows + 2) + rowH / 2);
+    ctx.fillText("splitter: bar on the priority output, in the filtered item · click header to hide", x0 + pad, y0 + pad + rowH * (nrows + 3) + rowH / 2);
     legendBox = { x0, y0, w, h, entity: true };
   }
 
@@ -636,6 +638,40 @@
     const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0 + 1, h = Math.max(...ys) - y0 + 1;
     ctx.strokeRect(px(x0) + 1, py(y0) + 1, w * scale - 2, h * scale - 2);
   }
+  // A splitter can sort as well as balance, and its shape says none of it: a filter sends one item
+  // to one side, a priority makes one side preferred. "left" is left of the way the splitter faces,
+  // and the cells are sorted the same way the flow sorts them so the two always name the same side.
+  function splitterInfo(r) {
+    const e = r.e, prio = e.output_priority, inPrio = e.input_priority;
+    const sided = (p) => p === "left" || p === "right";
+    if (!sided(prio) && !sided(inPrio)) return null;
+    const filter = sided(prio) ? (e.filter && (e.filter.name || e.filter)) || null : null;
+    const d = (e.direction || 0) & 12, v = DIRS[d] || [0, -1], lv = [v[1], -v[0]];
+    const cells = r.cells.slice().sort((a, b) => (b[0] * lv[0] + b[1] * lv[1]) - (a[0] * lv[0] + a[1] * lv[1]));
+    const pick = (side) => (side === "left" ? cells[0] : cells[1]) || cells[0];
+    return { v, filter, prio, inPrio, outCell: pick(prio), inCell: pick(inPrio) };
+  }
+  // A bar across the preferred output edge, in the filtered item's colour when there is a filter, a
+  // dimmer one on the preferred input edge, and the filter's own icon on the side it leaves by.
+  function splitterMarks(r, sp, icon) {
+    const [vx, vy] = sp.v, along = Math.max(2, scale * 0.16), across = scale * 0.78;
+    const bar = (cell, sign, colour, alpha) => {
+      const cx = px(cell[0]) + scale / 2 + vx * sign * scale * 0.42;
+      const cy = py(cell[1]) + scale / 2 + vy * sign * scale * 0.42;
+      const w = vx ? along : across, h = vx ? across : along;
+      ctx.globalAlpha = alpha; ctx.fillStyle = colour;
+      ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
+      ctx.globalAlpha = 1;
+    };
+    if (sp.prio === "left" || sp.prio === "right") bar(sp.outCell, 1, sp.filter ? itemColor(sp.filter) : "#f2f2f2", 0.95);
+    if (sp.inPrio === "left" || sp.inPrio === "right") bar(sp.inCell, -1, "#f2f2f2", 0.55);
+    if (!icon) return;
+    const side = scale * 0.62, ix = px(sp.outCell[0]) + (scale - side) / 2, iy = py(sp.outCell[1]) + (scale - side) / 2;
+    if (!drawIcon(sp.filter, ix, iy, side)) {
+      ctx.fillStyle = itemColor(sp.filter);
+      ctx.fillRect(ix + side * 0.15, iy + side * 0.15, side * 0.7, side * 0.7);
+    }
+  }
   function decorate(r) {
     const e = r.e, k = r.kind[0];
     const d = (e.direction || 0) & 12, v = DIRS[d] || [0, -1];
@@ -649,8 +685,13 @@
     };
     if (k === "belt" || k === "underground" || k === "splitter") {
       ctx.fillStyle = k === "underground" ? (e.type === "input" ? "#3a2e08" : "#f5d76e") : "rgba(0,0,0,0.6)";
-      tri(cx, cy);
-      if (k === "splitter" && r.cells[1]) tri(px(r.cells[1][0]) + scale / 2, py(r.cells[1][1]) + scale / 2);
+      const sp = k === "splitter" ? splitterInfo(r) : null;
+      const icon = !!(sp && sp.filter && scale >= 10);
+      for (const c of (k === "splitter" ? r.cells : [r.cells[0]])) {
+        if (icon && c[0] === sp.outCell[0] && c[1] === sp.outCell[1]) continue;   // the filter icon sits here
+        tri(px(c[0]) + scale / 2, py(c[1]) + scale / 2);
+      }
+      if (sp) splitterMarks(r, sp, icon);
     } else if (k.endsWith("inserter")) {
       // arrow in the direction the item travels: from the pickup side (where `direction` points) to the drop side
       // One arrow, tail at the pickup side, head at the drop side. Long-handed: longer shaft, a bar at the tail.
@@ -705,6 +746,12 @@
     if (e.direction !== undefined) s += "\ndirection: " + d + (DIRNAME[d & 12] ? " (" + DIRNAME[d & 12] + ")" : "");
     if (e.type) s += "\ntype: " + e.type + (e.type === "input" ? " (entrance)" : " (exit)");
     if (["belt", "underground", "splitter"].includes(r.kind[0])) s += "\ntier: " + tierOf(e.name) + " (" + TIER[tierOf(e.name)].label + ")";
+    if (r.kind[0] === "splitter") {
+      const flt = e.filter && (e.filter.name || e.filter);
+      if (flt) s += "\nfilter: " + flt + (e.output_priority ? " -> " + e.output_priority + " output" : " (no output priority, so the filter does nothing)");
+      if (e.output_priority && !flt) s += "\noutput priority: " + e.output_priority;
+      if (e.input_priority) s += "\ninput priority: " + e.input_priority;
+    }
     if (r.kind[0] === "underground") {
       const q = ugPair(r);
       s += q ? "\npair: " + (q.pair.baseId !== null ? "#" + q.pair.baseId : "(new)") + " @ (" + q.pair.e.position.x + ", " + q.pair.e.position.y + "), gap " + q.gap + " of max " + (TIER[tierOf(e.name)].reach - 1)
