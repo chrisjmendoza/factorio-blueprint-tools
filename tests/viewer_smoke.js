@@ -5,17 +5,20 @@
 // only runs at startup. Any of those leaves every control below the failure unbound, which
 // looks to a user like "the open button does nothing".
 //
-//   node tests/viewer_smoke.js
+//   node tests/viewer_smoke.js [dir]
+//
+// With a directory it runs against that copy of the page instead of vscode/media, which is how the
+// static web build gets tested: the deployed bundle is what visitors load, not the source folder.
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const zlib = require("zlib");
 
 const ROOT = path.join(__dirname, "..");
-const MEDIA = path.join(ROOT, "vscode", "media");
+const MEDIA = process.argv[2] ? path.resolve(process.argv[2]) : path.join(ROOT, "vscode", "media");
 const read = (f) => fs.readFileSync(path.join(MEDIA, f), "utf8");
 
-const html = read("viewer.html");
+const html = read(fs.existsSync(path.join(MEDIA, "viewer.html")) ? "viewer.html" : "index.html");
 const ids = new Set([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
 
 const calls = {};

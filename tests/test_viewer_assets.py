@@ -85,3 +85,54 @@ def test_viewer_loads_and_renders_a_blueprint():
     smoke = os.path.join(HERE, "viewer_smoke.js")
     done = subprocess.run([shutil.which("node"), smoke], capture_output=True, text=True)
     assert done.returncode == 0, done.stdout + done.stderr
+
+
+def test_web_build_ships_every_asset_the_page_asks_for():
+    """scripts/build-web.sh makes the static site. Every script and stylesheet the page loads has
+    to be in it, or the deployed viewer half-works with no error anyone would see."""
+    import tempfile
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash not available")
+    root = os.path.dirname(HERE)
+    with tempfile.TemporaryDirectory() as out:
+        target = os.path.join(out, "site")
+        subprocess.run([bash, os.path.join(root, "scripts", "build-web.sh"), target],
+                       check=True, capture_output=True, text=True)
+        with open(os.path.join(target, "index.html"), encoding="utf-8") as handle:
+            page = handle.read()
+        assets = re.findall(r'<script src="([^"]+)"', page) + re.findall(r'<link rel="stylesheet" href="([^"]+)"', page)
+        assert "viewer.js" in assets and "flow.js" in assets
+        for name in assets:
+            assert os.path.exists(os.path.join(target, name)), name + " is referenced but not in the build"
+        # the example the standalone button fetches
+        assert os.path.exists(os.path.join(target, "sample.txt"))
+        # Wube's artwork is not ours to publish, so a default build carries the stub, not the atlas
+        assert not os.path.exists(os.path.join(target, "icons.png"))
+        with open(os.path.join(target, "icons.js"), encoding="utf-8") as handle:
+            assert "FBP_ICONS = null" in handle.read()
+
+
+def test_web_build_page_loads_and_draws():
+    """The deployed bundle is what visitors run, so put that copy through the smoke test too."""
+    import tempfile
+    bash, node = shutil.which("bash"), shutil.which("node")
+    if not bash or not node:
+        pytest.skip("bash and node are both needed")
+    root = os.path.dirname(HERE)
+    with tempfile.TemporaryDirectory() as out:
+        target = os.path.join(out, "site")
+        subprocess.run([bash, os.path.join(root, "scripts", "build-web.sh"), target], check=True, capture_output=True, text=True)
+        done = subprocess.run([node, os.path.join(HERE, "viewer_smoke.js"), target], capture_output=True, text=True)
+        assert done.returncode == 0, done.stdout + done.stderr
+
+
+def test_vercel_config_points_at_the_web_build():
+    import json
+    root = os.path.dirname(HERE)
+    with open(os.path.join(root, "vercel.json"), encoding="utf-8") as handle:
+        cfg = json.load(handle)
+    assert cfg["outputDirectory"] == "public"
+    assert "build-web.sh" in cfg["buildCommand"]
+    with open(os.path.join(root, ".gitignore"), encoding="utf-8") as handle:
+        assert "public/" in handle.read(), "the built site must never be committed"

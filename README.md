@@ -188,6 +188,26 @@ the toggle is disabled.
 
 Icons that live inside mod `.zip` archives are skipped with a note.
 
+### The viewer as a web page
+
+The page needs no extension host: it decodes a blueprint string, computes the
+flow and edits in the browser, and remembers feeds in `localStorage`. Only
+**export** is VS Code only, because that shells out to `fbp patch` and
+`fbp diff`.
+
+```
+bash scripts/build-web.sh            # writes public/
+python -m http.server -d public      # then open http://localhost:8000
+```
+
+`vercel.json` points Vercel at that script, so a push to `main` deploys it: no
+install step, no framework, `public/` as the output. A deployed build carries
+`sample.txt` (the mall fixture) behind a **load an example blueprint** button so
+a first visit has something to look at, and it deliberately does **not** carry
+the icon atlas — that art is Wube's. The build writes a stub instead and the
+page falls back to coloured tiles. `FBP_WEB_ICONS=1` includes the atlas for a
+local build you are not publishing.
+
 ### Installing the extension
 
 No build step. Link the folder into your extensions directory and reload:
