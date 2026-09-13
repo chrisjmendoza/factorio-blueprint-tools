@@ -40,11 +40,11 @@ All notable changes to fbp are recorded here. The format follows
   sends the filtered item out of.
 
 ### Changed
-- Underground tunnel lines run along the edge of their corridor instead of
-  through the middle of the tiles, so they no longer cross the icons, recipe
-  text and lane stripes that sit in the centre. A tick at each end ties the line
-  to its hood, and hovering either end (or its partner) draws the line through
-  the centres at full strength.
+- Underground tunnel lines are drawn a segment per tile and dim themselves only
+  where they need to: solid over belts and open ground, faint across a machine,
+  chest or pole so the icon and text underneath stay readable. The dash is the
+  tier's light colour over a dark casing, since a yellow dash on a yellow belt
+  could not be seen at all, and hovering either end draws the whole run solid.
 
 ### Fixed
 - Two belts facing each other no longer connect in the flow or in `fbp trace`.

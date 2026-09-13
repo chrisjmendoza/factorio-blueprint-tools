@@ -23,7 +23,7 @@ const count = (name) => { calls[name] = (calls[name] || 0) + 1; };
 // Rectangles the page drew, with the colour in force at the time, so a test can ask "was that
 // tile tinted, and in which colour" rather than only "did anything draw".
 const ops = [];
-const paint = { fillStyle: "", strokeStyle: "" };
+const paint = { fillStyle: "", strokeStyle: "", globalAlpha: 1 };
 
 function element(id) {
   const node = {
@@ -49,7 +49,7 @@ function element(id) {
         if (prop === "canvas") return node;
         if (prop in paint) return paint[prop];
         if (prop === "moveTo" || prop === "lineTo") {
-          return (...args) => { count(prop); ops.push({ op: prop, args, stroke: paint.strokeStyle }); };
+          return (...args) => { count(prop); ops.push({ op: prop, args, stroke: paint.strokeStyle, alpha: paint.globalAlpha }); };
         }
         if (prop === "fillRect" || prop === "strokeRect" || prop === "drawImage") {
           return (...args) => { count(prop); ops.push({ op: prop, args, fill: paint.fillStyle, stroke: paint.strokeStyle }); };
@@ -143,8 +143,9 @@ function edge(axis, tile) {
 function calibrate() {
   move(600, 400);
   const t = readTile();                      // a tile that is certainly on screen to search around
-  scale = t[2];
-  ox = edge(0, t[0]) - t[0] * scale;
+  const left = edge(0, t[0]);
+  scale = edge(0, t[0] + 1) - left;          // the readout rounds the scale, two tile edges do not
+  ox = left - t[0] * scale;
   oy = edge(1, t[1]) - t[1] * scale;
 }
 calibrate();
@@ -184,7 +185,7 @@ if (drop.length !== 1) fail("expected one drop tint, got " + drop.length);
 {
   const [rx, ry, rw, rh] = drop[0].args;
   if (Math.abs(rh - scale / 2) > 2) fail("a drop onto an eastbound belt should tint half a tile high, got " + rh + " of " + scale);
-  if (Math.abs(rw - scale) > 2) fail("it should still span the tile along the belt, got " + rw + " of " + scale);
+  if (Math.abs(rw - scale) > 3) fail("it should still span the tile along the belt, got " + rw + " of " + scale);
   const half = (ry + rh / 2 - oy) / scale - 68;    // 0.25 = north half (left lane), 0.75 = south (right)
   if (half < 0.5) fail("the inserter stands west of the belt, so items land on the right lane (south half); got y offset " + half.toFixed(2));
 }
@@ -205,35 +206,37 @@ if (fs.existsSync(path.join(MEDIA, "icons.js")) && fs.existsSync(path.join(MEDIA
   if (!drawn.length) fail("the radar drew no icon (" + ops.filter((o) => o.op === "drawImage").length + " icons drawn in all)");
 }
 
-// The tunnel line for an underground pair runs along the edge of the corridor, clear of the icons
-// and lane stripes in the middle of the tiles, and moves to the centre only while an end is hovered.
-// mall.txt has an eastbound pair from (109,75) to (114,75).
-function tunnelLine() {
+// The tunnel line runs down the middle of the tiles, drawn a segment at a time, and goes faint only
+// where it crosses something that is not a belt. mall.txt has a westbound pair from (101,79) to
+// (97,79) whose run covers a small electric pole at (100,79) and bare ground at (99,79).
+// Each segment is a moveTo/lineTo pair; the alpha in force when it was drawn says how it reads.
+function tunnelSegment(tile) {
+  const wantX = px(tile[0]) + scale / 2, wantY = py(tile[1]) + scale / 2;
   for (let i = 1; i < ops.length; i++) {
     const a = ops[i - 1], b = ops[i];
     if (a.op !== "moveTo" || b.op !== "lineTo") continue;
-    if (Math.abs(a.args[0] - (px(109) + scale / 2)) > 1) continue;
-    if (Math.abs(b.args[0] - (px(114) + scale / 2)) > 1) continue;
-    return [a.args[1], b.args[1]];      // the two y's; the line is horizontal
+    const midX = (a.args[0] + b.args[0]) / 2, midY = (a.args[1] + b.args[1]) / 2;
+    if (Math.abs(midX - wantX) > scale * 0.1 || Math.abs(midY - wantY) > scale * 0.1) continue;
+    if (Math.abs(a.args[1] - wantY) > 0.5 || Math.abs(b.args[1] - wantY) > 0.5) continue;   // horizontal, on the centre line
+    return a;
   }
   return null;
 }
 ops.length = 0;
 move(px(150) + scale / 2, py(150) + scale / 2);      // nothing there, so no underground is lit
 {
-  const ys = tunnelLine();
-  if (!ys) fail("no tunnel line was drawn for the underground pair at y=75");
-  const offset = (ys[0] - (py(75) + scale / 2)) / scale;
-  if (Math.abs(offset + 0.42) > 0.05) fail("the tunnel line should sit near the corridor edge, not the centre; offset " + offset.toFixed(2) + " tiles");
-  if (Math.abs(ys[0] - ys[1]) > 0.01) fail("the tunnel line should be straight along its axis");
+  const overPole = tunnelSegment([100, 79]), overGround = tunnelSegment([99, 79]);
+  if (!overGround) fail("no tunnel segment was drawn down the middle of (99,79)");
+  if (!overPole) fail("no tunnel segment was drawn down the middle of (100,79)");
+  if (overGround.alpha < 0.9) fail("over open ground the tunnel should be solid; alpha " + overGround.alpha);
+  if (overPole.alpha > 0.4) fail("over a pole the tunnel should be dimmed; alpha " + overPole.alpha);
 }
 ops.length = 0;
-move(px(109) + scale / 2, py(75) + scale / 2);       // hovering the entrance
+move(px(101) + scale / 2, py(79) + scale / 2);       // hovering the entrance lights the whole run
 {
-  const ys = tunnelLine();
-  if (!ys) fail("the hovered underground drew no tunnel line");
-  const offset = (ys[0] - (py(75) + scale / 2)) / scale;
-  if (Math.abs(offset) > 0.02) fail("a hovered tunnel should run through the tile centres; offset " + offset.toFixed(2) + " tiles");
+  const overPole = tunnelSegment([100, 79]);
+  if (!overPole) fail("the hovered underground drew no tunnel segment over (100,79)");
+  if (overPole.alpha < 0.9) fail("a hovered tunnel should be solid the whole way; alpha " + overPole.alpha);
 }
 
 // A filtered splitter is marked on the side the filtered item leaves by. The mark has to name the

@@ -133,11 +133,12 @@ canvas: pan, zoom, hover for detail, search to highlight, and paint every belt
 lane with what the flow says is on it.
 
 - **Belts by tier** — yellow, red, blue, green for turbo, undergrounds darker and
-  splitters lighter. Each underground draws a dashed line to its partner along
-  the edge of the corridor, clear of the icons and lane stripes in the middle of
-  the tiles, with a tick at each end tying it back to the hood; hovering either
-  end draws it through the centres at full strength and shades the reach.
-  Unpaired ends are outlined red.
+  splitters lighter. Each underground draws a dashed line to its partner down
+  the middle of the tiles, in the tier's light colour over a dark casing so it
+  reads even when it runs over a belt of its own colour. The line goes faint
+  only where it crosses a machine, chest or pole, leaving the icon and text
+  underneath legible; hovering either end draws the whole run solid and shades
+  the reach. Unpaired ends are outlined red.
 - **Inserters by type**, drawn as an arrow pointing the way the item travels.
   Hovering one marks both ends: blue on the tile it picks from, green on the
   tile it drops onto, with the whole chest or machine standing there outlined.
