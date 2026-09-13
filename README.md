@@ -1,20 +1,48 @@
-# Factorio blueprint tools (fbp)
+# fbp — Factorio blueprint tools
 
-Command line tools for working on Factorio 2.0 blueprint strings outside the
-game: decode and re-encode them, draw a region as an ASCII map, trace what
-feeds a machine, find machines whose ingredients nothing nearby supplies, and
-apply small edits without hand-editing 500 KB of JSON.
+Read, analyse and edit **Factorio 2.0 / Space Age** blueprint strings outside the
+game. `fbp` decodes a string, works out **what can be on every belt lane**, tells
+you **which machines are missing an ingredient**, and applies edits as a checked
+patch. A VS Code extension draws the whole thing on a pan-and-zoom canvas and
+lets you edit it by hand.
 
-Written for base strings in the tens of thousands of entities. Everything runs
-in a second or two on the full base export.
+Built for real base exports: the analysis runs over a 5,600-entity base in about
+0.2 seconds.
+
+![A mall rendered by fbp](docs/render.png)
+
+<sub>The bundled test fixture drawn by <code>fbp render --png</code>. Machines green, furnaces orange, belts by tier, inserters blue.</sub>
+
+## Why
+
+A blueprint string is 500 KB of compressed JSON. Once a base is large enough to
+be interesting, questions like *"what is actually on this belt?"*, *"why is this
+assembler idle?"* and *"will moving this break anything downstream?"* are hard to
+answer by eye, and harder to answer after a game update changes a recipe.
+
+`fbp` answers them from the string itself.
 
 ## Install
 
-```
-pip install -e ".[dev]"      # from this folder; gives you the `fbp` command
+Needs Python 3.10 or newer. No required dependencies.
+
+```bash
+git clone https://github.com/chrisjmendoza/factorio-blueprint-tools
+cd factorio-blueprint-tools
+pip install -e ".[dev]"      # gives you the `fbp` command, plus pytest and Pillow
 ```
 
-Or run without installing: `python -m fbp ...` from this folder.
+Or run it in place with `python -m fbp ...`.
+
+## Quick start
+
+```bash
+fbp info base.txt --recipes          # what is in this blueprint
+fbp check base.txt                   # machines with an ingredient nothing supplies
+fbp flow base.txt --at 103 77        # what can be on the belt at this tile
+fbp render base.txt 104 73 122 84    # ASCII map of a region
+fbp trace base.txt --recipe substation
+```
 
 ## Commands
 
@@ -27,49 +55,41 @@ fbp render FILE --png out.png [--scale N]    tile-coloured PNG of the whole prin
 fbp find FILE --recipe R | --name N          list matching entities with ids and positions
 fbp trace FILE --recipe R | --id N ...       inputs, outputs and belt lines of a machine
 fbp trace FILE --at X Y                      a belt tile: what flows in, and every consumer downstream
-fbp check FILE [--recipe R]                  flag crafters missing an ingredient source; lane-mix warnings
 fbp flow FILE [--feeds F] [--at X Y] [--json OUT]   what can be on each belt lane; machine ok/missing/unknown
+fbp check FILE [--recipe R]                  crafters missing an ingredient source; lane-mix warnings
 fbp lint FILE [--only CODE ...] [--strict]   belts and inserters that point at nothing useful
 fbp diff A B                                 what changed between two versions (machines, check, lint, lanes)
-fbp patch FILE patch.json -o out.txt         remove / re-recipe / add entities, write new string
+fbp patch FILE patch.json -o out.txt         remove / re-recipe / add entities, write a new string
 fbp crop FILE x0 y0 x1 y1 -o out.txt         cut a region out as its own blueprint
-fbp gamedata [--dump PATH]                   rebuild data/gamedata.json from the game's dump
+fbp gamedata [--dump PATH]                   rebuild recipe data from the game's own dump
 fbp recipe NAME ...                          show recipes from the loaded data
 ```
 
 `FILE` may be a blueprint string (a `.txt` as exported from the game) or a
 decoded `.json`. Books are read; commands operate on the first blueprint.
 
-## How tracing works
-
-Positions in the string are entity centres; a 3x3 machine at (114.5, 77.5)
-covers x 113..115, y 76..78. An inserter's `direction` points at its pickup
-tile and it drops on the opposite side; long-handed inserters reach two tiles.
-Belts are followed tile to tile through underground pairs and splitters.
-
-What a belt carries is inferred, not read: an assembler feeding it contributes
-its recipe products, a furnace contributes every smelting product, a filtered
-requester chest contributes its filters, and anything else (a plain chest, a
-belt that enters from outside the blueprint) is "unknown". `check` reports a
-machine as a **problem** only when an ingredient has no plausible source and
-no unknown source is present; otherwise it is **inconclusive**. Fluids are not
-traced, so machines whose recipe is fluid-only on a side are not judged on
-that side.
-
 ## What is on the belts
 
-`fbp flow FILE` works out what can be on the left and right lane of every
-belt. It follows inserter drops (far lane), curves (lanes kept), sideloads
-(near lane), the underground half-block, splitter filters, crafter products,
-furnace smelting and chest relays to a fixed point. `--at X Y` prints one
-tile; `--json out.json` writes the whole map, which is what the viewer
-paints. Machines get a status: **ok** when every ingredient reaches them,
-**missing** when something does not, **unknown** when a furnace of unknown
-input could be the supplier.
+`fbp flow` works out what can be on the **left and right lane of every belt**, by
+propagating from producers to a fixed point:
 
-Furnace output is `smelted?` until you say what goes in. **Edge feeds** are
-items entering the print from outside, declared in `<name>.feeds.json`
-beside the blueprint:
+- an inserter drops on the **far** lane, and long-handed inserters reach two tiles
+- a curve keeps both lanes; a belt entering another belt's **side** sideloads onto
+  the near lane
+- a belt sideloading into an underground tile passes only the lane aligned with
+  the open half, entrance or exit — the one-lane filter trick
+- filter splitters route; other splitters keep lanes and feed both outputs
+- assemblers emit their recipe's products, furnaces emit the smelting result of
+  whatever reaches them, chests relay what is dropped in
+
+Each machine then gets a status: **ok** when every item ingredient reaches it,
+**missing** when something does not, **unknown** when the only candidate supplier
+is a furnace whose input has not been declared.
+
+### Edge feeds
+
+A blueprint rarely contains its own ore. Declare what enters from outside in
+`<name>.feeds.json` beside the string:
 
 ```json
 [{"x": 30, "y": 81, "items": ["iron-ore"], "lane": "both"},
@@ -77,32 +97,28 @@ beside the blueprint:
 ```
 
 Declare ore at the head of each furnace column and plates resolve all the way
-down the bus; declare a plate belt entering from another print and the mall
-it feeds lights up. In the viewer, the **flow** toggle paints lanes and
-outlines machines green, red or dashed grey; **feed** mode declares an input
-by picking an item and clicking a belt, and right-click on a marker removes
-it. The feeds file is saved and the flow recomputed on every change.
+down the bus. In the viewer, **feed** mode does this by clicking a belt.
 
-This is a "could be here" analysis, not a simulation: items are never
-removed by consumption, so a lane that shows two items has both arriving on
-it somewhere upstream.
+This is a *could be here* analysis, not a simulation. Items are never consumed,
+so a lane showing two items has both arriving on it somewhere upstream. It
+proves an item is available, not that it arrives fast enough — **throughput is
+not modelled**.
 
 ## Verifying an edit
 
-The intended workflow after any patch is `fbp diff BEFORE AFTER`. It matches
-machines by position and lists every one whose recipe, inputs or outputs
-changed, each with an ingredient status, then shows which `check` problems,
-`lint` findings and lane-mix warnings appeared or disappeared. Only the
-machines you meant to touch should be listed, and nothing should be `NEW:`.
+After any patch, run `fbp diff BEFORE AFTER`. It matches machines by position and
+lists every one whose recipe, inputs or outputs changed with an ingredient
+status, then shows which check problems, lint findings and lane-mix warnings
+appeared or disappeared. Only the machines you meant to touch should be listed,
+and nothing should be `NEW:`.
 
-`fbp trace FILE --at X Y` is the tool for the question "if I drop an item on
-this tile, where does it go?": it prints the upstream line and every consumer
-downstream, following undergrounds and splitters. Use it before sideloading.
+`fbp trace FILE --at X Y` answers "if I drop an item on this tile, where does it
+go?" — the upstream line and every consumer downstream, through undergrounds and
+splitters. Worth running before any sideload.
 
-**Lane mix.** A mall belt is meant to carry one item per lane. `check` warns
-when inserters put two different items on the same lane of one line. Many
-real bases do this on purpose (this one has 19 such lanes), so treat the
-warnings as a before/after comparison rather than an absolute.
+**Lane mix.** A mall belt is meant to carry one item per lane. `check` warns when
+inserters put two different items on the same lane. Plenty of working bases do
+this deliberately, so treat it as a before/after comparison, not an absolute.
 
 **Lint codes:** `belt-dead-end`, `belt-into-entity`, `underground-unpaired`,
 `splitter-no-input`, `splitter-no-output`, `inserter-from-empty`,
@@ -110,21 +126,66 @@ warnings as a before/after comparison rather than an absolute.
 Undergrounds at the edge of an export whose partner was outside the selection
 show up as unpaired; that is information, not an error.
 
+## The viewer
+
+`vscode/` is a dependency-free VS Code extension that renders a blueprint on a
+canvas: pan, zoom, hover for detail, search to highlight, and paint every belt
+lane with what the flow says is on it.
+
+- **Belts by tier** — yellow, red, blue, green for turbo, undergrounds darker and
+  splitters lighter. Each underground draws a dashed line to its partner and
+  shades its reach when hovered; unpaired ends are outlined red.
+- **Inserters by type**, drawn as an arrow pointing the way the item travels.
+- **Machines outlined** green, red or dashed grey by flow status, with a label
+  saying what a red one is missing, and a clickable list in the side panel.
+- **Edit mode** — remove, rotate, flip an underground, change a recipe from a
+  searchable list, or place from a palette with shift-drag to paint a run. The
+  page never mutates the blueprint: edits accumulate as a patch in the `fbp
+  patch` format, with per-edit revert. **export…** applies it with `fbp patch`
+  into a new file, then runs `fbp diff` and `fbp check` over the result.
+
+The flow, the editing and the rendering all run **in the page**
+(`vscode/media/flow.js` is a port of `fbp/flow.py`, with a test asserting the two
+agree). So `vscode/media/viewer.html` works opened directly in a browser too, by
+dropping a `.txt` on it or pasting a string. Only **export** needs the extension,
+because only it can run Python and write files.
+
+### Installing the extension
+
+No build step. Link the folder into your extensions directory and reload:
+
+```bat
+mklink /J "%USERPROFILE%\.vscode\extensions\fbp-viewer" "<path to this repo>\vscode"
+```
+
+```bash
+ln -s "$PWD/vscode" ~/.vscode/extensions/fbp-viewer
+```
+
+Then open a blueprint `.txt` and run **fbp: Open blueprint viewer**. Settings:
+`fbp.python` (interpreter) and `fbp.toolsPath` (folder holding the `fbp`
+package, defaults to this repo).
+
 ## Game data
 
-Recipes and footprints come from the game itself. With Factorio closed:
+Recipes and footprints come from the game itself, so the tool is right about
+*your* install including mods. With Factorio closed:
 
-```
-"C:\Games\Steam\steamapps\common\Factorio\bin\x64\factorio.exe" --dump-data
+```bat
+factorio.exe --dump-data
 fbp gamedata
 ```
 
-The first line writes `%APPDATA%\Factorio\script-output\data-raw-dump.json`
-(about 28 MB, includes your enabled mods). The second boils it down to
-`data/gamedata.json`, which is committed so the tool works without the dump.
-Re-run both after a game update or a mod change that touches recipes. If
-neither file exists a tiny built-in table covers a dozen mall recipes and
-everything else is reported as unknown rather than guessed.
+The first writes `%APPDATA%\Factorio\script-output\data-raw-dump.json` (~28 MB);
+`fbp gamedata` boils it down to `data/gamedata.json` (~130 KB, committed) and
+`vscode/media/gamedata.js` for the viewer. Re-run both after a game update or a
+mod change that touches recipes. Set `FBP_DATA_DUMP` if your dump lives
+elsewhere. Without either file a small built-in table covers common mall recipes
+and everything else is reported as unknown rather than guessed.
+
+The committed data is from **Factorio 2.0.77 with Space Age**, dumped from an
+install that had mods enabled, so it carries two extra recipes from LTN
+Combinator Modernized. Regenerate it from your own install for exact results.
 
 ## Patch format
 
@@ -139,69 +200,56 @@ everything else is reported as unknown rather than guessed.
 }
 ```
 
-Ids refer to the input file (get them from `find` or `trace`). New entities
-may not overlap existing ones. Removing an entity that has circuit or copper
-wires is refused unless `"drop_wires": true`. Output is renumbered and wires
-are remapped.
+Ids refer to the input file (get them from `find`, `trace` or the viewer). New
+entities may not overlap existing ones. Removing an entity that has circuit or
+copper wires is refused unless `"drop_wires": true`. The output is renumbered and
+wires are remapped.
 
-## VS Code viewer
+## Geometry notes
 
-`vscode/` is a small extension that draws the active blueprint string on a
-pan-and-zoom canvas. It decodes with Node's zlib in the extension host, reads
-footprints from `data/gamedata.json`, and redraws whenever the file is saved.
+Positions are entity **centres**: a 3x3 machine at (114.5, 77.5) covers x 113–115,
+y 76–78. An inserter's stored `direction` points at its **pickup** tile and it
+drops on the opposite side; the viewer's palette flips this so the direction you
+choose is the direction items move. Underground pairs match on tier, axis and
+opposite type within reach (5/7/9/11 tiles).
 
-- **fbp: Open blueprint viewer** (editor title button, or the command palette
-  with a `.txt`/`.fbp` open). Drag to pan, wheel to zoom, `F` to fit. Hover
-  for name, id, position, recipe and direction; click to pin an entity and
-  copy its id, position or JSON for a patch file. The search box highlights
-  entities by name or recipe. Toggles for copper/circuit wires, recipe
-  labels and a tile grid.
-- **fbp: Run supply check on this file** and **fbp: Trace machines by
-  recipe** run the Python tool and print to an "fbp" output channel.
-- **Edit mode** (checkbox in the toolbar). Click an entity then `Delete` to
-  mark it removed, `R` to rotate, `T` to flip an underground end, or pick a
-  recipe in the side panel. Choose a palette item and click a tile to place
-  it; the ghost turns red on an occupied tile. `Ctrl+Z` undoes. Nothing in
-  the page changes the blueprint: edits are a patch in the `fbp patch`
-  format, shown by **copy patch**. **export…** saves that patch under
-  `patches/` beside the source, runs `fbp patch` into `<name> - edit N.txt`,
-  then `fbp diff` and `fbp check`, and reloads the viewer on the result. The
-  source file is never overwritten.
-- Colours: belts by tier (yellow, red, blue, green turbo) with undergrounds
-  darker and splitters lighter; inserters by type (yellow, red long-handed,
-  blue fast, green bulk, white stack) drawn as arrows in the direction the
-  item moves. Undergrounds draw a dashed tunnel to their partner; unpaired
-  ends are outlined red; hovering one shades every tile within its reach.
+`docs/belt-patterns.md` is a sourced reference on lane mechanics, sideloading,
+the underground filter, splitter behaviour and column layouts.
 
-Install for development by linking the folder into your extensions directory
-(no build step, plain JavaScript):
+## Limitations
 
-```
-mklink /J "%USERPROFILE%\.vscode\extensions\chrisjmendoza.fbp-viewer-0.1.0" "D:\Dev\factorio mods\blueprint-tools\vscode"
-```
-
-then reload the window. Settings: `fbp.python` (interpreter) and
-`fbp.toolsPath` (folder holding the `fbp` package; defaults to this repo).
+- **No throughput.** Availability is proven; rates are not.
+- **Fluids are not traced.** Pipe networks are not modelled yet, so machines with
+  fluid ingredients are not judged on that side.
+- **Rails and rolling stock** are indexed at a single tile, so train layouts can
+  miss collisions.
+- Quality, modules and circuit conditions are preserved through edits but do not
+  affect the analysis.
 
 ## Layout
 
 ```
-vscode/         VS Code extension: extension.js (host), media/viewer.* (webview)
-fbp/
-  codec.py      string <-> JSON, books
-  model.py      footprints, tile index, inserter geometry
-  gamedata.py   recipe and footprint data (dump -> slim file -> fallback)
-  render.py     ASCII and PNG
-  trace.py      belt graph, feeders, consumers, item inference
-  check.py      supply check
-  patch.py      apply / crop
-  cli.py        argparse front end
-data/gamedata.json
+fbp/            codec, model, gamedata, render, trace, flow, check, lint, patch, diff, cli
+vscode/         extension.js (host) + media/ (viewer.html/css/js, flow.js, gamedata.js)
+data/           gamedata.json, generated from the game's dump
+docs/           belt-patterns.md
 tests/          pytest; fixtures/mall.txt is a crop of a real mall
 ```
 
 ## Tests
 
-```
+```bash
 pytest
 ```
+
+Covers the codec round trip, footprint and inserter geometry, underground
+pairing, the supply check, lane flow including the sideload and underground
+cases, patching and cropping, viewer asset wiring, and parity between the Python
+and JavaScript flow implementations (needs `node`; skipped if absent).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+Factorio is a trademark of Wube Software. This project is not affiliated with
+Wube Software.

@@ -4,5 +4,8 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
+
+# rendered output; the docs images are kept deliberately
 *.png
+!docs/*.png
 !tests/fixtures/*.png
