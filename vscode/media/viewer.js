@@ -130,6 +130,10 @@
   let editMode = false, nextTemp = -1;
   // flow: lane contents and machine status computed by `fbp flow` on the host; feeds are user-declared inputs
   let flowData = null, showFlow = false, feedMode = false, itemList = [], feeds = [];
+  // Icon atlas state lives with the rest of the state: `let` is in the temporal dead zone until the
+  // declaration runs, and the toolbar wiring below reads iconMap while the script is still starting.
+  let iconMap = (typeof window !== "undefined" && window.FBP_ICONS) || null;
+  let iconAtlas = null, iconUrl = null, showIcons = true;
   const ITEM_COLORS = {
     "iron-ore": "#7a8aa0", "copper-ore": "#c46a3a", "stone": "#9c9080", "coal": "#2b2b2b", "iron-plate": "#b9c4d2",
     "copper-plate": "#e0803f", "steel-plate": "#8e97a6", "stone-brick": "#b08a6a", "iron-gear-wheel": "#a9b6c6",
@@ -987,8 +991,6 @@
   // ---------------------------------------------------------------- icons
   // `fbp icons` builds icons.png + icons.js from a local Factorio install. They are optional and
   // never committed, so everything below degrades to the coloured tiles when they are absent.
-  let iconMap = (typeof window !== "undefined" && window.FBP_ICONS) || null;
-  let iconAtlas = null, iconUrl = null, showIcons = true;
   function loadIcons(url) {
     if (!iconMap) return;
     iconUrl = url || iconMap.file || "icons.png";

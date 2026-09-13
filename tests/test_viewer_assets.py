@@ -76,3 +76,12 @@ def test_scripts_parse():
         if not os.path.exists(path):
             continue          # icons.js is generated from a local game install and is not committed
         subprocess.run([shutil.which("node"), "--check", path], check=True, capture_output=True)
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node not available")
+def test_viewer_loads_and_renders_a_blueprint():
+    """Run the page against a stub DOM. Catches load-time errors that unbind every later
+    handler, which is what a user sees as 'the open button does nothing'."""
+    smoke = os.path.join(HERE, "viewer_smoke.js")
+    done = subprocess.run([shutil.which("node"), smoke], capture_output=True, text=True)
+    assert done.returncode == 0, done.stdout + done.stderr
