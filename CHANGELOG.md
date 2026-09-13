@@ -31,6 +31,13 @@ All notable changes to fbp are recorded here. The format follows
   entities (chests, poles, lamps, pipes, combinators) get theirs once tiles are
   at least 12 px. Belts and inserters keep their arrows.
 
+### Changed
+- Underground tunnel lines run along the edge of their corridor instead of
+  through the middle of the tiles, so they no longer cross the icons, recipe
+  text and lane stripes that sit in the centre. A tick at each end ties the line
+  to its hood, and hovering either end (or its partner) draws the line through
+  the centres at full strength.
+
 ### Fixed
 - Two belts facing each other no longer connect in the flow or in `fbp trace`.
   A belt running head-on into the hood of an underground entrance (or into the

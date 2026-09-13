@@ -48,6 +48,9 @@ function element(id) {
         if (prop === "measureText") return () => ({ width: 10 });
         if (prop === "canvas") return node;
         if (prop in paint) return paint[prop];
+        if (prop === "moveTo" || prop === "lineTo") {
+          return (...args) => { count(prop); ops.push({ op: prop, args, stroke: paint.strokeStyle }); };
+        }
         if (prop === "fillRect" || prop === "strokeRect" || prop === "drawImage") {
           return (...args) => { count(prop); ops.push({ op: prop, args, fill: paint.fillStyle, stroke: paint.strokeStyle }); };
         }
@@ -124,9 +127,8 @@ const move = (x, y) => { for (const fn of map.on.mousemove || []) fn({ clientX: 
 const readTile = () => (nodes.get("coords").textContent.match(/tile (-?\d+), (-?\d+)\s+([\d.]+)/) || []).slice(1).map(Number);
 if (!map.on.mousemove) fail("the map has no mousemove handler");
 move(600, 400);
-const probe = readTile();
-if (probe.length !== 3) fail("the coords readout did not parse: " + JSON.stringify(nodes.get("coords").textContent));
-const scale = probe[2];
+if (readTile().length !== 3) fail("the coords readout did not parse: " + JSON.stringify(nodes.get("coords").textContent));
+let scale = 0, ox = 0, oy = 0;
 // smallest pixel whose reported tile is `tile`, i.e. the tile's left/top edge
 function edge(axis, tile) {
   let lo = 0, hi = axis === 0 ? map.width : map.height;
@@ -137,11 +139,19 @@ function edge(axis, tile) {
   }
   return hi;
 }
+// the view transform changes with every zoom, so recover it whenever the test zooms
+function calibrate() {
+  move(600, 400);
+  const t = readTile();                      // a tile that is certainly on screen to search around
+  scale = t[2];
+  ox = edge(0, t[0]) - t[0] * scale;
+  oy = edge(1, t[1]) - t[1] * scale;
+}
+calibrate();
+const px = (x) => ox + x * scale, py = (y) => oy + y * scale;
 const ins = bp.entities.find((e) => e.name === "long-handed-inserter");
 if (!ins) fail("the fixture has no long-handed inserter to hover");
 const ix = Math.floor(ins.position.x), iy = Math.floor(ins.position.y);
-const ox = edge(0, ix) - ix * scale, oy = edge(1, iy) - iy * scale;
-const px = (x) => ox + x * scale, py = (y) => oy + y * scale;
 ops.length = 0;
 move(px(ix) + scale / 2, py(iy) + scale / 2);
 const tinted = (col) => ops.filter((o) => o.op === "fillRect" && o.fill === col);
@@ -186,11 +196,44 @@ if (fs.existsSync(path.join(MEDIA, "icons.js")) && fs.existsSync(path.join(MEDIA
   if (!cell) fail("the icon atlas has no radar icon");
   const radar = bp.entities.find((e) => e.name === "radar");
   if (!radar) fail("the fixture no longer has a radar");
-  ops.length = 0;
   for (const fn of windowListeners.keydown || []) fn({ key: "+", preventDefault() {} });   // zoom in past the icon threshold
+  calibrate();
+  ops.length = 0;
+  move(px(Math.floor(radar.position.x)) + scale / 2, py(Math.floor(radar.position.y)) + scale / 2);
   const size = sandbox.window.FBP_ICONS.size;
   const drawn = ops.filter((o) => o.op === "drawImage" && o.args[1] === cell[0] * size && o.args[2] === cell[1] * size);
   if (!drawn.length) fail("the radar drew no icon (" + ops.filter((o) => o.op === "drawImage").length + " icons drawn in all)");
+}
+
+// The tunnel line for an underground pair runs along the edge of the corridor, clear of the icons
+// and lane stripes in the middle of the tiles, and moves to the centre only while an end is hovered.
+// mall.txt has an eastbound pair from (109,75) to (114,75).
+function tunnelLine() {
+  for (let i = 1; i < ops.length; i++) {
+    const a = ops[i - 1], b = ops[i];
+    if (a.op !== "moveTo" || b.op !== "lineTo") continue;
+    if (Math.abs(a.args[0] - (px(109) + scale / 2)) > 1) continue;
+    if (Math.abs(b.args[0] - (px(114) + scale / 2)) > 1) continue;
+    return [a.args[1], b.args[1]];      // the two y's; the line is horizontal
+  }
+  return null;
+}
+ops.length = 0;
+move(px(150) + scale / 2, py(150) + scale / 2);      // nothing there, so no underground is lit
+{
+  const ys = tunnelLine();
+  if (!ys) fail("no tunnel line was drawn for the underground pair at y=75");
+  const offset = (ys[0] - (py(75) + scale / 2)) / scale;
+  if (Math.abs(offset + 0.42) > 0.05) fail("the tunnel line should sit near the corridor edge, not the centre; offset " + offset.toFixed(2) + " tiles");
+  if (Math.abs(ys[0] - ys[1]) > 0.01) fail("the tunnel line should be straight along its axis");
+}
+ops.length = 0;
+move(px(109) + scale / 2, py(75) + scale / 2);       // hovering the entrance
+{
+  const ys = tunnelLine();
+  if (!ys) fail("the hovered underground drew no tunnel line");
+  const offset = (ys[0] - (py(75) + scale / 2)) / scale;
+  if (Math.abs(offset) > 0.02) fail("a hovered tunnel should run through the tile centres; offset " + offset.toFixed(2) + " tiles");
 }
 
 console.log("viewer smoke ok: %d draw calls, inserter hover marks pickup and drop, flow says %j", calls.fillRect, status);
